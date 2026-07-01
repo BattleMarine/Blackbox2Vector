@@ -15,6 +15,8 @@
 | AGENTS.md는 공개 가능한 프로젝트 작업 규칙 중심으로 유지한다. | 내부 실행 세부사항보다 협업에 필요한 규칙을 남기는 편이 안전하다. | 결정 |
 | v1.1은 실제 YOLO 전 단계로 업로드 영상 기반 더미 분석을 연결한다. | 영상 저장, 프레임 추출, JSON 저장 흐름을 먼저 안정화하면 추후 detector만 교체하기 쉽다. | 결정 |
 | v1.1은 첫 번째 샘플 프레임 기준 Scene Vector JSON을 저장한다. | 프레임 시퀀스 분석은 추적과 움직임 벡터 설계가 필요하므로 다음 단계로 분리한다. | 결정 |
+| v1.2는 데모용 실제 객체 검출 백엔드로 Ultralytics YOLO를 도입한다. | 빠르게 실제 bbox와 class를 얻어 Scene Vector 변환 흐름을 검증할 수 있다. | 결정 |
+| YOLO는 장기 핵심 구조가 아니라 detector backend 중 하나로 둔다. | 이후 segmentation, depth, tracking, vision-language 백엔드를 추가할 여지를 유지해야 한다. | 결정 |
 
 ## 변경 기록
 

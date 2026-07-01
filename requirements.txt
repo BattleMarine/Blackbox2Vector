@@ -3,4 +3,4 @@ opencv-python
 numpy
 matplotlib
 pandas
-# ultralytics
+ultralytics

@@ -9,7 +9,10 @@
 | `save_scene_vector` | 함수 | `scene_vector`, `output_path` | 저장된 `Path` | Scene Vector JSON 파일 저장 | UTF-8 JSON 저장 |
 | `load_frame_rgb` | 함수 | `frame_path` | BGR 프레임, RGB 프레임 | OpenCV 프레임을 앱 표시용으로 변환 | 읽기 실패 시 예외 |
 | `show_video_metadata` | 함수 | `metadata` | 없음 | 영상 메타데이터를 Streamlit metric으로 표시 | v1.1 UI |
-| `main` | 함수 | 없음 | 없음 | Streamlit 앱 화면 구성 | 업로드 영상 기반 더미 분석 연결 |
+| `show_detector_settings` | 함수 | 없음 | backend, model_path, confidence_threshold | detector 설정을 사이드바에서 입력 | v1.2 UI |
+| `show_runtime_status` | 함수 | 없음 | 없음 | 앱이 사용하는 Python 경로와 YOLO 설치 상태 표시 | 환경 혼선 진단 |
+| `create_object_detector` | 함수 | `backend`, `model_path`, `confidence_threshold` | `ObjectDetector` 인스턴스 | Streamlit 모듈 캐시를 갱신한 뒤 detector 생성 | hot reload 안정화 |
+| `main` | 함수 | 없음 | 없음 | Streamlit 앱 화면 구성 | 업로드 영상 기반 더미/YOLO 분석 연결 |
 
 ## src/video_loader.py
 
@@ -23,8 +26,12 @@
 
 | 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
 |---|---|---|---|---|---|
-| `ObjectDetector` | 클래스 | `model_path` | 인스턴스 | 추후 YOLO 모델을 감싸는 객체 검출기 | 현재는 더미 구현 |
-| `ObjectDetector.detect_objects` | 메서드 | `frame` | detection 목록 | 프레임에서 객체 검출 결과 반환 | 현재 프레임 크기 기반 더미 bbox 반환 |
+| `SUPPORTED_YOLO_TYPES` | 상수 | 없음 | set | Scene Vector로 변환할 YOLO 클래스 제한 | 사람, 자전거, 차량 계열 |
+| `ObjectDetector` | 클래스 | `backend`, `model_path`, `confidence_threshold` | 인스턴스 | 더미 또는 YOLO detector 백엔드 선택 | YOLO는 데모용 백엔드 |
+| `ObjectDetector.detect_objects` | 메서드 | `frame` | detection 목록 | 프레임에서 객체 검출 결과 반환 | 공통 detection dict 반환 |
+| `ObjectDetector._load_yolo_model` | 메서드 | 없음 | YOLO 모델 | Ultralytics YOLO 지연 로딩 | 미설치/로딩 실패 시 한국어 오류 |
+| `ObjectDetector._detect_dummy` | 메서드 | `frame` | detection 목록 | 프레임 크기 기반 더미 bbox 반환 | 파이프라인 검증용 |
+| `ObjectDetector._detect_yolo` | 메서드 | `frame` | detection 목록 | YOLO 결과를 공통 detection 형식으로 변환 | bbox는 `[x, y, width, height]` |
 
 ## src/position_estimator.py
 

@@ -1,27 +1,78 @@
+import sys
 from typing import Any
 
 
-class ObjectDetector:
-    """추후 Ultralytics YOLO 연결을 감싸기 위한 객체 검출 인터페이스."""
+SUPPORTED_YOLO_TYPES = {
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "bus",
+    "truck",
+}
 
-    def __init__(self, model_path: str | None = None):
-        self.model_path = model_path
+
+class ObjectDetector:
+    """데모용 객체 검출 백엔드 인터페이스."""
+
+    def __init__(
+        self,
+        backend: str = "dummy",
+        model_path: str | None = None,
+        confidence_threshold: float = 0.25,
+    ):
+        self.backend = backend
+        self.model_path = model_path or "yolov8n.pt"
+        self.confidence_threshold = confidence_threshold
         self.model = None
-        # 현재는 초기 UI와 JSON 구조 검증을 위한 더미 상태이다.
-        # TODO: 추후 Ultralytics YOLO 모델 로딩으로 교체한다.
+
+        if self.backend not in {"dummy", "yolo"}:
+            raise ValueError(f"지원하지 않는 detector backend입니다: {self.backend}")
+
+        if self.backend == "yolo":
+            self.model = self._load_yolo_model()
 
     def detect_objects(self, frame: Any) -> list[dict[str, Any]]:
-        """프레임에서 객체를 검출한다."""
+        """선택된 백엔드로 프레임에서 객체를 검출한다."""
         if frame is None:
             raise ValueError("객체 검출에 사용할 프레임이 없습니다.")
 
+        if self.backend == "dummy":
+            return self._detect_dummy(frame)
+        if self.backend == "yolo":
+            return self._detect_yolo(frame)
+
+        raise ValueError(f"지원하지 않는 detector backend입니다: {self.backend}")
+
+    def _load_yolo_model(self) -> Any:
+        """Ultralytics YOLO 모델을 지연 로딩한다."""
+        try:
+            from ultralytics import YOLO
+        except ImportError as exc:
+            raise RuntimeError(
+                "YOLO 백엔드를 사용하려면 ultralytics가 필요합니다. "
+                f"현재 앱 실행 Python은 `{sys.executable}`입니다. "
+                f"`{sys.executable} -m pip install ultralytics` 또는 "
+                f"`{sys.executable} -m pip install -r requirements.txt`를 실행하세요."
+            ) from exc
+
+        try:
+            return YOLO(self.model_path)
+        except Exception as exc:
+            raise RuntimeError(
+                f"YOLO 모델을 불러오지 못했습니다: {self.model_path}. "
+                "모델 파일 경로와 네트워크 연결 또는 로컬 가중치 존재 여부를 확인하세요."
+            ) from exc
+
+    def _detect_dummy(self, frame: Any) -> list[dict[str, Any]]:
+        """파이프라인 검증을 위한 프레임 크기 기반 더미 detection을 생성한다."""
         frame_height, frame_width = frame.shape[:2]
         bbox_width = max(int(frame_width * 0.16), 40)
         bbox_height = max(int(frame_height * 0.13), 30)
         bbox_x = int((frame_width - bbox_width) / 2)
         bbox_y = int(frame_height * 0.55)
 
-        # 실제 YOLO가 연결되기 전까지 프레임 크기에 맞춘 더미 detection을 반환한다.
+        # YOLO 없이도 전체 앱 흐름을 점검할 수 있도록 하나의 가상 차량을 만든다.
         return [
             {
                 "track_id": 1,
@@ -30,3 +81,47 @@ class ObjectDetector:
                 "confidence": 0.87,
             }
         ]
+
+    def _detect_yolo(self, frame: Any) -> list[dict[str, Any]]:
+        """Ultralytics YOLO 결과를 프로젝트 공통 detection 형식으로 변환한다."""
+        if self.model is None:
+            raise RuntimeError("YOLO 모델이 초기화되지 않았습니다.")
+
+        results = self.model.predict(
+            source=frame,
+            conf=self.confidence_threshold,
+            verbose=False,
+        )
+        if not results:
+            return []
+
+        result = results[0]
+        names = result.names
+        detections: list[dict[str, Any]] = []
+
+        for box in result.boxes:
+            class_id = int(box.cls[0])
+            object_type = names.get(class_id, str(class_id))
+            if object_type not in SUPPORTED_YOLO_TYPES:
+                continue
+
+            x1, y1, x2, y2 = [float(value) for value in box.xyxy[0].tolist()]
+            width = max(x2 - x1, 1.0)
+            height = max(y2 - y1, 1.0)
+            confidence = float(box.conf[0])
+
+            detections.append(
+                {
+                    "track_id": len(detections) + 1,
+                    "type": object_type,
+                    "bbox_2d": [
+                        round(x1, 2),
+                        round(y1, 2),
+                        round(width, 2),
+                        round(height, 2),
+                    ],
+                    "confidence": round(confidence, 4),
+                }
+            )
+
+        return detections

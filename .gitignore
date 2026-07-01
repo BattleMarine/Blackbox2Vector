@@ -30,6 +30,11 @@ data/output/*
 !data/frames/.gitkeep
 !data/output/.gitkeep
 
+# 로컬 모델 가중치
+*.pt
+*.onnx
+*.engine
+
 # 운영체제와 편집기 파일
 .DS_Store
 Thumbs.db

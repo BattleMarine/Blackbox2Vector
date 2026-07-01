@@ -1,10 +1,12 @@
 import json
+import sys
+from importlib import import_module, reload
+from importlib.util import find_spec
 from pathlib import Path
 
 import cv2
 import streamlit as st
 
-from src.detector import ObjectDetector
 from src.scene_vector import build_scene_vector, build_sample_scene_vector
 from src.summarizer import summarize_scene
 from src.video_loader import extract_sample_frames, get_video_metadata, save_uploaded_video
@@ -15,6 +17,7 @@ INPUT_DIR = Path("data/input")
 FRAMES_DIR = Path("data/frames")
 OUTPUT_DIR = Path("data/output")
 SCENE_VECTOR_PATH = OUTPUT_DIR / "scene_vector.json"
+YOLO_DEFAULT_MODEL = "yolov8n.pt"
 
 
 def format_file_size(byte_size: int) -> str:
@@ -62,6 +65,52 @@ def show_video_metadata(metadata: dict[str, float | int]) -> None:
     metric_columns[3].metric("길이", f"{metadata['duration_seconds']:.2f}초")
 
 
+def show_detector_settings() -> tuple[str, str, float]:
+    """데모용 객체 검출 백엔드 설정을 사이드바에서 받는다."""
+    st.sidebar.header("검출 설정")
+    backend_label = st.sidebar.radio(
+        "검출 백엔드",
+        ["더미 detector", "YOLO detector"],
+        help="YOLO는 데모용 실제 객체 검출 백엔드입니다. 장기 구조는 여러 백엔드를 지원하도록 유지합니다.",
+    )
+    backend = "yolo" if backend_label == "YOLO detector" else "dummy"
+    model_path = st.sidebar.text_input("YOLO 모델 경로", value=YOLO_DEFAULT_MODEL)
+    confidence_threshold = st.sidebar.slider("YOLO 신뢰도 기준", 0.05, 0.90, 0.25, 0.05)
+
+    if backend == "dummy":
+        st.sidebar.caption("현재 선택: 프레임 크기 기반 가상 bbox")
+    else:
+        st.sidebar.caption("현재 선택: Ultralytics YOLO 데모 백엔드")
+
+    return backend, model_path, confidence_threshold
+
+
+def show_runtime_status() -> None:
+    """앱이 실제로 사용하는 Python 환경을 사이드바에 표시한다."""
+    st.sidebar.header("실행 환경")
+    st.sidebar.code(sys.executable, language="text")
+    if find_spec("ultralytics") is None:
+        st.sidebar.warning("현재 Python에서 ultralytics를 찾을 수 없습니다.")
+        st.sidebar.code(f"{sys.executable} -m pip install ultralytics", language="bash")
+    else:
+        st.sidebar.success("ultralytics 설치 확인")
+
+
+def create_object_detector(
+    backend: str,
+    model_path: str,
+    confidence_threshold: float,
+):
+    """Streamlit 재실행 중 남은 이전 detector 모듈 캐시를 피한다."""
+    detector_module = import_module("src.detector")
+    detector_module = reload(detector_module)
+    return detector_module.ObjectDetector(
+        backend=backend,
+        model_path=model_path,
+        confidence_threshold=confidence_threshold,
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="BlackBox2Vector", layout="wide")
 
@@ -69,9 +118,12 @@ def main() -> None:
     st.subheader("2D 블랙박스 영상에서 Scene Vector JSON으로")
 
     st.write(
-        "데모 v1은 정밀한 3D 복원 시스템이 아니라, 영상 기반 추정값을 "
-        "자차 기준 Scene Vector JSON으로 표현하는 초기 구조 확인용 앱입니다."
+        "데모 v1.2는 정밀한 3D 복원 시스템이 아니라, YOLO 또는 더미 detector 결과를 "
+        "자차 기준 Scene Vector JSON으로 변환하는 구조 확인용 앱입니다."
     )
+
+    detector_backend, yolo_model_path, confidence_threshold = show_detector_settings()
+    show_runtime_status()
 
     uploaded_file = st.file_uploader(
         "블랙박스 영상 업로드",
@@ -108,7 +160,11 @@ def main() -> None:
                 metadata = get_video_metadata(video_path)
                 sample_frames = extract_sample_frames(video_path, FRAMES_DIR, sample_fps=1, max_frames=5)
 
-                detector = ObjectDetector()
+                detector = create_object_detector(
+                    backend=detector_backend,
+                    model_path=yolo_model_path,
+                    confidence_threshold=confidence_threshold,
+                )
                 first_frame_path = sample_frames[0]
                 first_frame_bgr, first_frame_rgb = load_frame_rgb(first_frame_path)
                 detections = detector.detect_objects(first_frame_bgr)
@@ -126,11 +182,12 @@ def main() -> None:
                 save_scene_vector(scene_vector, SCENE_VECTOR_PATH)
                 summary = summarize_scene(scene_vector)
 
-                st.success("업로드 영상 기반 v1.1 더미 분석을 완료했습니다.")
+                st.success("업로드 영상 기반 v1.2 분석을 완료했습니다.")
                 st.write(summary)
-                st.caption(
-                    "현재 객체 검출은 실제 YOLO가 아니라 추출 프레임에 적용한 더미 detection입니다."
-                )
+                if detector_backend == "dummy":
+                    st.caption("현재 객체 검출은 실제 YOLO가 아니라 추출 프레임에 적용한 더미 detection입니다.")
+                else:
+                    st.caption("현재 객체 검출은 Ultralytics YOLO 데모 백엔드를 사용했습니다.")
 
                 show_video_metadata(metadata)
 
@@ -139,13 +196,15 @@ def main() -> None:
                 with frame_columns[0]:
                     st.image(first_frame_rgb, caption=f"원본 프레임: {first_frame_path.name}")
                 with frame_columns[1]:
-                    st.image(overlay_rgb, caption="더미 detection 오버레이")
+                    st.image(overlay_rgb, caption=f"{detector_backend} detection 오버레이")
 
                 if len(sample_frames) > 1:
                     st.caption(
                         f"총 {len(sample_frames)}개의 샘플 프레임을 추출했습니다. "
                         "화면에는 첫 번째 프레임 분석 결과를 표시합니다."
                     )
+                if not detections:
+                    st.warning("선택한 detector에서 검출된 객체가 없습니다. Scene Vector JSON의 objects는 빈 목록입니다.")
 
                 left_column, right_column = st.columns([1, 1])
                 with left_column:

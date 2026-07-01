@@ -70,16 +70,16 @@ BlackBox2Vector는 2D 블랙박스 영상을 입력받아 객체, 차선, 도로
 - Matplotlib
 - Pandas
 - JSON
+- Ultralytics YOLO
 
 추후 도입 후보는 다음과 같습니다.
 
-- Ultralytics YOLO
 - Plotly
 - PyTorch
 - FFmpeg
 - Open3D
 
-초기 작업에서 Ultralytics YOLO는 필수로 연결하지 않습니다. 대신 detector 모듈은 추후 YOLO를 연결할 수 있는 구조로 작성합니다.
+v1.2에서 Ultralytics YOLO는 데모용 실제 객체 검출 백엔드로 사용합니다. 다만 장기 구조에서는 YOLO에 종속되지 않도록 detector 백엔드 중 하나로 유지합니다.
 
 ## 데모 v1에서 하지 말 것
 
@@ -130,7 +130,7 @@ blackbox2vector/
 |---|---|
 | app.py | Streamlit 데모 앱 진입점 |
 | src/video_loader.py | 영상 저장, 메타데이터 확인, 프레임 추출 |
-| src/detector.py | 객체 검출 모듈, 초기에는 더미 검출 가능 |
+| src/detector.py | 객체 검출 백엔드, 더미와 YOLO 검출 지원 |
 | src/position_estimator.py | 2D bbox 기반 3D 위치 추정 |
 | src/scene_vector.py | Scene Vector JSON 생성 |
 | src/visualizer.py | 검출 결과 및 2.5D/3D 시각화 |
