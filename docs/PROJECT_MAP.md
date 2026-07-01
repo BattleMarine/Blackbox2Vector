@@ -53,16 +53,23 @@ blackbox2vector/
 | `src/visualizer.py` | bbox 오버레이와 2.5D 탑뷰 시각화 |
 | `src/summarizer.py` | 규칙 기반 장면 요약 |
 
-## 데모 v1 데이터 흐름
+## 데모 v1.1 데이터 흐름
 
 ```text
 Streamlit 앱
   -> 영상 업로드 UI
-  -> 샘플 detection 생성
+  -> data/input/에 업로드 영상 저장
+  -> OpenCV 영상 메타데이터 조회
+  -> data/frames/에 샘플 프레임 추출
+  -> 첫 번째 샘플 프레임 로드
+  -> 프레임 크기 기반 더미 detection 생성
+  -> bbox 오버레이 프레임 생성
   -> 2D bbox 기반 위치 추정
   -> Scene Vector JSON 생성
+  -> data/output/scene_vector.json 저장
   -> 장면 요약 생성
   -> 2.5D 탑뷰 표시
+  -> JSON 다운로드 제공
 ```
 
-현재 앱은 구조 확인용 샘플 결과를 사용합니다. 실제 영상 저장, 프레임 추출, YOLO 검출 연결은 다음 단계에서 앱 흐름에 연결합니다.
+현재 앱은 실제 업로드 영상을 저장하고 샘플 프레임을 추출합니다. 객체 검출은 아직 YOLO가 아니라 더미 detection입니다.

@@ -101,6 +101,7 @@ BlackBox2Vector는 2D 블랙박스 영상을 입력받아 객체, 차선, 도로
 blackbox2vector/
 ├─ README.md
 ├─ AGENTS.md
+├─ .gitignore
 ├─ requirements.txt
 ├─ app.py
 ├─ data/

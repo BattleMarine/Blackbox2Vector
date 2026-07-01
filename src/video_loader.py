@@ -58,10 +58,13 @@ def extract_sample_frames(
     video_path: str | Path,
     output_dir: str | Path,
     sample_fps: int = 1,
+    max_frames: int | None = None,
 ) -> list[Path]:
     """지정한 초당 샘플 수에 맞춰 프레임 이미지를 추출한다."""
     if sample_fps <= 0:
         raise ValueError("sample_fps는 1 이상의 값이어야 합니다.")
+    if max_frames is not None and max_frames <= 0:
+        raise ValueError("max_frames는 1 이상의 값이거나 None이어야 합니다.")
 
     path = Path(video_path)
     if not path.exists():
@@ -96,6 +99,8 @@ def extract_sample_frames(
                 if not write_success:
                     raise RuntimeError(f"프레임 이미지를 저장하지 못했습니다: {frame_path}")
                 saved_frames.append(frame_path)
+                if max_frames is not None and len(saved_frames) >= max_frames:
+                    break
 
             frame_index += 1
     finally:

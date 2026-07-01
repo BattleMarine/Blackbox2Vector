@@ -5,7 +5,11 @@
 | 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
 |---|---|---|---|---|---|
 | `format_file_size` | 함수 | `byte_size` | 문자열 | 업로드 파일 크기를 읽기 쉬운 단위로 변환 | UI 표시용 |
-| `main` | 함수 | 없음 | 없음 | Streamlit 앱 화면 구성 | 샘플 Scene Vector 표시 |
+| `clear_previous_frames` | 함수 | `frames_dir` | 없음 | 이전 샘플 프레임 정리 | 새 분석 결과 혼합 방지 |
+| `save_scene_vector` | 함수 | `scene_vector`, `output_path` | 저장된 `Path` | Scene Vector JSON 파일 저장 | UTF-8 JSON 저장 |
+| `load_frame_rgb` | 함수 | `frame_path` | BGR 프레임, RGB 프레임 | OpenCV 프레임을 앱 표시용으로 변환 | 읽기 실패 시 예외 |
+| `show_video_metadata` | 함수 | `metadata` | 없음 | 영상 메타데이터를 Streamlit metric으로 표시 | v1.1 UI |
+| `main` | 함수 | 없음 | 없음 | Streamlit 앱 화면 구성 | 업로드 영상 기반 더미 분석 연결 |
 
 ## src/video_loader.py
 
@@ -13,14 +17,14 @@
 |---|---|---|---|---|---|
 | `save_uploaded_video` | 함수 | `uploaded_file`, `save_dir` | 저장된 `Path` | Streamlit 업로드 파일을 디스크에 저장 | 파일 없음 또는 저장 실패 시 예외 |
 | `get_video_metadata` | 함수 | `video_path` | 메타데이터 dict | FPS, 프레임 수, 해상도, 길이 확인 | OpenCV 사용 |
-| `extract_sample_frames` | 함수 | `video_path`, `output_dir`, `sample_fps` | 프레임 경로 목록 | 지정한 초당 샘플 수로 이미지 추출 | 추출 실패 시 예외 |
+| `extract_sample_frames` | 함수 | `video_path`, `output_dir`, `sample_fps`, `max_frames` | 프레임 경로 목록 | 지정한 초당 샘플 수로 이미지 추출 | 최대 프레임 수 제한 가능 |
 
 ## src/detector.py
 
 | 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
 |---|---|---|---|---|---|
 | `ObjectDetector` | 클래스 | `model_path` | 인스턴스 | 추후 YOLO 모델을 감싸는 객체 검출기 | 현재는 더미 구현 |
-| `ObjectDetector.detect_objects` | 메서드 | `frame` | detection 목록 | 프레임에서 객체 검출 결과 반환 | 현재 고정 샘플 반환 |
+| `ObjectDetector.detect_objects` | 메서드 | `frame` | detection 목록 | 프레임에서 객체 검출 결과 반환 | 현재 프레임 크기 기반 더미 bbox 반환 |
 
 ## src/position_estimator.py
 
