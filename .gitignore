@@ -1,0 +1,40 @@
+# Python 캐시와 빌드 산출물
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# 가상환경
+.venv/
+venv/
+env/
+
+# 로컬 환경 변수와 비밀 설정
+.env
+.env.*
+!.env.example
+secrets.toml
+.streamlit/secrets.toml
+
+# 실행 중 생성되는 데이터
+data/input/*
+data/frames/*
+data/output/*
+!data/input/.gitkeep
+!data/frames/.gitkeep
+!data/output/.gitkeep
+
+# 운영체제와 편집기 파일
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Codex/에이전트 로컬 작업 상태
+.agents/
