@@ -2,6 +2,8 @@
 
 ## Scene Vector JSON 전체 구조
 
+`scene_vector.json`은 단일 프레임을 표현하는 하나의 Scene Vector 객체입니다.
+
 ```json
 {
   "scene_id": "clip_001_frame_0001",
@@ -23,6 +25,33 @@
   "objects": [],
   "events": []
 }
+```
+
+v1.3의 `scene_vectors.json`은 같은 Scene Vector 객체를 프레임 순서대로 담은 배열입니다.
+
+```json
+[
+  {
+    "scene_id": "clip_001_frame_0001",
+    "timestamp": 0.0,
+    "coordinate_system": {
+      "origin": "ego_vehicle",
+      "axis": {
+        "x": "right",
+        "y": "forward",
+        "z": "up"
+      },
+      "unit": "meter_estimated"
+    },
+    "ego_vehicle": {
+      "position_3d": [0.0, 0.0, 0.0],
+      "heading": [0.0, 1.0, 0.0],
+      "speed": null
+    },
+    "objects": [],
+    "events": []
+  }
+]
 ```
 
 ## 최상위 필드
@@ -109,4 +138,5 @@ z: 위쪽 양수, 도로면 0
 - 카메라 캘리브레이션이 반영되지 않았습니다.
 - `z`는 초기에는 도로면 기준 `0.0`으로 둡니다.
 - 움직임 벡터는 추후 프레임 간 추적이 연결될 때 갱신합니다.
+- `scene_vectors.json`은 프레임별 결과 배열이며, 현재는 프레임 간 동일 객체 ID 연속성을 보장하지 않습니다.
 - 모든 위치값은 영상 기반 추정값이며 `confidence`와 `range`를 함께 해석해야 합니다.

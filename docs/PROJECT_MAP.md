@@ -53,7 +53,7 @@ blackbox2vector/
 | `src/visualizer.py` | bbox 오버레이와 2.5D 탑뷰 시각화 |
 | `src/summarizer.py` | 규칙 기반 장면 요약 |
 
-## 데모 v1.2 데이터 흐름
+## 데모 v1.3 데이터 흐름
 
 ```text
 Streamlit 앱
@@ -61,16 +61,17 @@ Streamlit 앱
   -> data/input/에 업로드 영상 저장
   -> OpenCV 영상 메타데이터 조회
   -> data/frames/에 샘플 프레임 추출
-  -> 첫 번째 샘플 프레임 로드
   -> 사이드바 detector backend 선택
-  -> 더미 또는 YOLO detection 생성
-  -> bbox 오버레이 프레임 생성
-  -> 2D bbox 기반 위치 추정
-  -> Scene Vector JSON 생성
+  -> 추출된 모든 샘플 프레임 로드
+  -> 프레임별 더미 또는 YOLO detection 생성
+  -> 프레임별 bbox 오버레이 생성
+  -> 프레임별 2D bbox 기반 위치 추정
+  -> Scene Vector JSON 시퀀스 생성
   -> data/output/scene_vector.json 저장
-  -> 장면 요약 생성
-  -> 2.5D 탑뷰 표시
+  -> data/output/scene_vectors.json 저장
+  -> 슬라이더로 선택한 프레임의 장면 요약 생성
+  -> 슬라이더로 선택한 프레임의 원본, 오버레이, 2.5D 탑뷰 표시
   -> JSON 다운로드 제공
 ```
 
-현재 앱은 실제 업로드 영상을 저장하고 샘플 프레임을 추출합니다. 객체 검출은 더미 detector와 Ultralytics YOLO detector 중 선택할 수 있습니다.
+현재 앱은 실제 업로드 영상을 저장하고 샘플 프레임을 추출합니다. 객체 검출은 더미 detector와 Ultralytics YOLO detector 중 선택할 수 있습니다. v1.3에서는 첫 번째 프레임만 분석하지 않고, 추출된 샘플 프레임 전체를 분석한 뒤 슬라이더로 프레임별 결과를 넘겨볼 수 있습니다.

@@ -17,6 +17,10 @@
 | v1.1은 첫 번째 샘플 프레임 기준 Scene Vector JSON을 저장한다. | 프레임 시퀀스 분석은 추적과 움직임 벡터 설계가 필요하므로 다음 단계로 분리한다. | 결정 |
 | v1.2는 데모용 실제 객체 검출 백엔드로 Ultralytics YOLO를 도입한다. | 빠르게 실제 bbox와 class를 얻어 Scene Vector 변환 흐름을 검증할 수 있다. | 결정 |
 | YOLO는 장기 핵심 구조가 아니라 detector backend 중 하나로 둔다. | 이후 segmentation, depth, tracking, vision-language 백엔드를 추가할 여지를 유지해야 한다. | 결정 |
+| v1.3은 추출된 모든 샘플 프레임에 detector를 적용한다. | 첫 프레임만 분석하면 영상 시퀀스 기반 Scene Vector 확장성을 확인하기 어렵다. | 결정 |
+| v1.3은 슬라이더로 샘플 프레임을 넘겨보는 UI를 사용한다. | 실시간 재생 전 단계에서 프레임별 결과를 안정적으로 검수할 수 있다. | 결정 |
+| v1.3은 프레임별 결과 배열을 `scene_vectors.json`으로 저장한다. | 단일 `scene_vector.json`과 구분해 시퀀스 분석 결과를 보존해야 한다. | 결정 |
+| v1.3에서는 객체 추적과 실제 움직임 벡터 추정을 아직 하지 않는다. | 프레임별 detection 안정화 이후 track ID 연속성과 속도 추정을 별도 단계로 다루는 편이 안전하다. | 결정 |
 
 ## 변경 기록
 
