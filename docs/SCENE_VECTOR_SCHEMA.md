@@ -1,4 +1,41 @@
-# SCENE_VECTOR_SCHEMA.md
+﻿# SCENE_VECTOR_SCHEMA.md
+
+## v1.5 라벨 피드백 JSONL 현재 기준
+
+라벨링 관리자 화면의 피드백은 Scene Vector와 별도로 `data/output/label_feedback.jsonl`에 누적 저장합니다. 한 줄이 하나의 JSON 객체입니다.
+
+```json
+{
+  "frame_index": 1,
+  "frame_path": "data/frames/example_frame_000000.jpg",
+  "feedback_type": "TN",
+  "feedback_meaning": "True Negative: 맞다고 분류했지만 실제로는 아님",
+  "bbox_2d": [520.0, 310.0, 180.0, 90.0],
+  "original_item": {},
+  "corrected_tag": "road_reflection",
+  "note": "노면 반사"
+}
+```
+
+| 필드 | 의미 |
+|---|---|
+| `frame_index` | 선택 프레임 번호 |
+| `frame_path` | 선택 프레임의 저장 경로 |
+| `feedback_type` | `TP`, `TN`, `FP`, `FN` |
+| `feedback_meaning` | 피드백 타입의 한국어 설명 |
+| `bbox_2d` | 피드백 대상 bbox `[x, y, width, height]` |
+| `original_item` | 기존 분석 박스 정보. 새 박스 평가에서는 `null` |
+| `corrected_tag` | 확정 객체 태그, 오분류 사유, 미분류 객체 태그, 비객체 사유 |
+| `note` | 관리자의 메모 |
+
+| 타입 | 의미 | 판정 |
+|---|---|---|
+| `TP` | 맞다고 분류했고 실제로 맞음 | 정답 |
+| `TN` | 맞다고 분류했지만 실제로는 아님 | 오분류 |
+| `FP` | 아니라고 분류했지만 실제로는 맞음 | 미분류 오답 |
+| `FN` | 아니라고 분류했고 실제로도 아님 | 정답 |
+
+관리자가 별도 피드백을 남기지 않은 기존 분석 박스는 `TP`로 간주합니다.
 
 ## v1.4.4 Scene Vector 구조
 

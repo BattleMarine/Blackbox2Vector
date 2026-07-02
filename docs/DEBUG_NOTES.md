@@ -39,6 +39,27 @@ Streamlit hot reload 중 `src.detector` 모듈 캐시에 v1.1의 이전 `ObjectD
 
 ### 문제
 
+라벨링 관리자 화면에서 `streamlit-drawable-canvas`가 배경 이미지를 표시할 때 `image_to_url` 속성이 없다는 오류가 발생했다.
+
+### 증상
+
+박스 클릭 또는 드래그 피드백 캔버스가 렌더링되기 전에 `AttributeError: module 'streamlit.elements.image' has no attribute 'image_to_url'` 오류가 발생한다.
+
+### 원인
+
+설치된 Streamlit 1.58 계열에서 `streamlit.elements.image.image_to_url` 비공개 내부 함수가 제거되었지만, `streamlit-drawable-canvas`는 아직 해당 내부 함수에 의존한다.
+
+### 해결
+
+`app.py` 시작 시 최신 Streamlit의 `Runtime.media_file_mgr.add()`를 사용해 `image_to_url` 호환 함수를 보강하도록 했다. 실행 중인 Streamlit 서버에는 이전 import 상태가 남을 수 있으므로 코드 수정 후 서버를 재시작한다.
+
+### 관련 파일
+
+- `app.py`
+- `docs/DEBUG_NOTES.md`
+
+### 문제
+
 YOLO 백엔드 선택 시 `ultralytics`가 필요하다는 오류가 계속 발생했다.
 
 ### 증상

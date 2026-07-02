@@ -1,11 +1,62 @@
+import io
 import json
 import sys
 from importlib import import_module, reload
 from importlib.util import find_spec
 from pathlib import Path
+from typing import Any
 
 import cv2
 import streamlit as st
+from PIL import Image
+
+try:
+    from streamlit_drawable_canvas import st_canvas
+except ImportError:
+    st_canvas = None
+
+
+def patch_drawable_canvas_image_to_url() -> None:
+    """최신 Streamlit에서 제거된 내부 함수를 캔버스 라이브러리용으로 보강합니다."""
+    if st_canvas is None:
+        return
+
+    try:
+        import streamlit.elements.image as st_image
+        from streamlit.runtime import get_instance
+    except Exception:
+        return
+
+    if hasattr(st_image, "image_to_url"):
+        return
+
+    def image_to_url(
+        image,
+        width=None,
+        clamp=False,
+        channels="RGB",
+        output_format="PNG",
+        image_id="drawable-canvas-bg",
+    ):
+        # streamlit-drawable-canvas가 Streamlit의 비공개 API에 의존하므로,
+        # 앱 내부에서 필요한 배경 이미지 URL 생성 기능만 최소 범위로 복원합니다.
+        del width, clamp
+        if channels == "RGB" and getattr(image, "mode", None) != "RGB":
+            image = image.convert("RGB")
+
+        buffer = io.BytesIO()
+        image.save(buffer, format=output_format)
+        mimetype = f"image/{output_format.lower()}"
+        return get_instance().media_file_mgr.add(
+            buffer.getvalue(),
+            mimetype,
+            str(image_id or "drawable-canvas-bg"),
+        )
+
+    st_image.image_to_url = image_to_url
+
+
+patch_drawable_canvas_image_to_url()
 
 from src.evidence_pipeline import build_overlay_items, split_detections_by_certainty
 from src.light_candidate_detector import detect_light_candidates_with_diagnostics
@@ -21,13 +72,21 @@ FRAMES_DIR = Path("data/frames")
 OUTPUT_DIR = Path("data/output")
 SCENE_VECTOR_PATH = OUTPUT_DIR / "scene_vector.json"
 SCENE_VECTOR_SEQUENCE_PATH = OUTPUT_DIR / "scene_vectors.json"
+LABEL_FEEDBACK_PATH = OUTPUT_DIR / "label_feedback.jsonl"
 YOLO_DEFAULT_MODEL = "yolov8n.pt"
 SAMPLE_FPS = 1
 MAX_SAMPLE_FRAMES = 12
+OBJECT_CLASSES = ["car", "truck", "bus", "motorcycle", "bicycle", "person"]
+NEGATIVE_TAGS = ["false_positive", "streetlight", "sign_light", "windshield_drop", "road_reflection", "hood_reflection", "other"]
+FEEDBACK_DEFINITIONS = {
+    "TP": "True Positive: 맞다고 분류했고 실제로 맞음",
+    "TN": "True Negative: 맞다고 분류했지만 실제로는 아님",
+    "FP": "False Positive: 아니라고 분류했지만 실제로는 맞음",
+    "FN": "False Negative: 아니라고 분류했고 실제로도 아님",
+}
 
 
 def format_file_size(byte_size: int) -> str:
-    """업로드 파일 크기를 사람이 읽기 쉬운 단위로 바꾼다."""
     if byte_size < 1024:
         return f"{byte_size} B"
     if byte_size < 1024 * 1024:
@@ -36,61 +95,48 @@ def format_file_size(byte_size: int) -> str:
 
 
 def clear_previous_frames(frames_dir: Path) -> None:
-    """이전 실행 결과가 섞이지 않도록 샘플 프레임만 정리한다."""
     frames_dir.mkdir(parents=True, exist_ok=True)
     for frame_path in frames_dir.glob("*.jpg"):
         frame_path.unlink()
 
 
 def save_json_data(data: dict | list, output_path: Path) -> Path:
-    """분석 결과를 사람이 읽을 수 있는 UTF-8 JSON 파일로 저장한다."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return output_path
 
 
-def save_scene_vector(scene_vector: dict, output_path: Path) -> Path:
-    return save_json_data(scene_vector, output_path)
-
-
-def save_scene_vectors(scene_vectors: list[dict], output_path: Path) -> Path:
-    return save_json_data(scene_vectors, output_path)
+def append_jsonl(record: dict[str, Any], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def load_frame_rgb(frame_path: Path):
-    """OpenCV가 읽은 BGR 프레임을 Streamlit 표시용 RGB로 변환한다."""
     frame_bgr = cv2.imread(str(frame_path))
     if frame_bgr is None:
         raise ValueError(f"프레임 이미지를 읽을 수 없습니다: {frame_path}")
-    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    return frame_bgr, frame_rgb
+    return frame_bgr, cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
 
 def show_video_metadata(metadata: dict[str, float | int]) -> None:
     st.markdown("### 영상 메타데이터")
-    metric_columns = st.columns(4)
-    metric_columns[0].metric("해상도", f"{metadata['width']} x {metadata['height']}")
-    metric_columns[1].metric("FPS", f"{metadata['fps']:.2f}")
-    metric_columns[2].metric("프레임 수", f"{metadata['frame_count']}")
-    metric_columns[3].metric("길이", f"{metadata['duration_seconds']:.2f}초")
+    cols = st.columns(4)
+    cols[0].metric("해상도", f"{metadata['width']} x {metadata['height']}")
+    cols[1].metric("FPS", f"{metadata['fps']:.2f}")
+    cols[2].metric("프레임 수", f"{metadata['frame_count']}")
+    cols[3].metric("길이", f"{metadata['duration_seconds']:.2f}초")
 
 
 def show_detector_settings() -> tuple[str, str, float, bool, int, bool]:
-    """YOLO 결과는 v1.4.4에서 확정 객체와 후보로 다시 분리한다."""
     st.sidebar.header("검출 설정")
-    backend_label = st.sidebar.radio(
-        "검출 백엔드",
-        ["더미 detector", "YOLO detector"],
-        help="YOLO는 데모용 객체 검출 백엔드입니다. v1.4.4에서는 낮은 신뢰도와 ROI 밖 결과를 후보로 내립니다.",
-    )
+    backend_label = st.sidebar.radio("검출 백엔드", ["더미 detector", "YOLO detector"])
     backend = "yolo" if backend_label == "YOLO detector" else "dummy"
     model_path = st.sidebar.text_input("YOLO 모델 경로", value=YOLO_DEFAULT_MODEL)
     confidence_threshold = st.sidebar.slider("YOLO 추론 신뢰도 기준", 0.05, 0.90, 0.25, 0.05)
     use_light_candidates = st.sidebar.checkbox("밝은 영역 evidence 수집", value=True)
     light_brightness_threshold = st.sidebar.slider("밝은 영역 기준", 180, 255, 220, 5)
     use_motion_assist = st.sidebar.checkbox("프레임 움직임 evidence 수집", value=True)
-
-    st.sidebar.caption("v1.4.4: raw evidence, object candidate, confirmed object를 분리합니다.")
     return backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold, use_motion_assist
 
 
@@ -99,15 +145,16 @@ def show_runtime_status() -> None:
     st.sidebar.code(sys.executable, language="text")
     if find_spec("ultralytics") is None:
         st.sidebar.warning("현재 Python에서 ultralytics를 찾을 수 없습니다.")
-        st.sidebar.code(f"{sys.executable} -m pip install ultralytics", language="bash")
     else:
         st.sidebar.success("ultralytics 설치 확인")
+    if st_canvas is None:
+        st.sidebar.warning("박스 클릭/드래그에는 streamlit-drawable-canvas가 필요합니다.")
+    else:
+        st.sidebar.success("canvas 라벨링 설치 확인")
 
 
 def create_object_detector(backend: str, model_path: str, confidence_threshold: float):
-    """Streamlit 재실행 중 남은 이전 detector 모듈 캐시를 피한다."""
-    detector_module = import_module("src.detector")
-    detector_module = reload(detector_module)
+    detector_module = reload(import_module("src.detector"))
     return detector_module.ObjectDetector(
         backend=backend,
         model_path=model_path,
@@ -123,7 +170,6 @@ def analyze_sample_frames(
     light_brightness_threshold: int,
     use_motion_assist: bool,
 ) -> tuple[list[dict], list[list[dict]], list[dict], list[dict], list[dict]]:
-    """모든 검출 결과를 바로 objects에 넣지 않고 세 단계로 분리한다."""
     scene_vectors: list[dict] = []
     overlay_items_by_frame: list[list[dict]] = []
     light_diagnostics_by_frame: list[dict] = []
@@ -147,22 +193,10 @@ def analyze_sample_frames(
             )
 
         motion_candidates: list[dict] = []
-        motion_diagnostics: dict = {
-            "verified_count": 0,
-            "motion_candidate_count": 0,
-            "rejected_count": 0,
-            "rejected_by_reason": {},
-        }
+        motion_diagnostics: dict = {"verified_count": 0, "motion_candidate_count": 0, "rejected_count": 0, "rejected_by_reason": {}}
         if use_motion_assist and previous_frame_bgr is not None:
-            model_detections, verification_diagnostics = annotate_detections_with_motion(
-                model_detections,
-                previous_frame=previous_frame_bgr,
-                current_frame=frame_bgr,
-            )
-            motion_candidates, candidate_diagnostics = extract_motion_candidates(
-                previous_frame=previous_frame_bgr,
-                current_frame=frame_bgr,
-            )
+            model_detections, verification_diagnostics = annotate_detections_with_motion(model_detections, previous_frame_bgr, frame_bgr)
+            motion_candidates, candidate_diagnostics = extract_motion_candidates(previous_frame_bgr, frame_bgr)
             motion_diagnostics = {
                 "verified_count": verification_diagnostics.get("verified_count", 0),
                 "motion_candidate_count": len(motion_candidates),
@@ -179,16 +213,14 @@ def analyze_sample_frames(
 
         previous_light_candidates = light_candidates
         previous_frame_bgr = frame_bgr
-        timestamp = round((frame_order - 1) / SAMPLE_FPS, 2)
         scene_vector = build_scene_vector(
             frame_index=frame_order,
-            timestamp=timestamp,
+            timestamp=round((frame_order - 1) / SAMPLE_FPS, 2),
             detections=confirmed_objects,
             frame_size=frame_size,
             raw_evidence=raw_evidence,
             object_candidates=object_candidates,
         )
-
         scene_vectors.append(scene_vector)
         overlay_items_by_frame.append(build_overlay_items(scene_vector))
         light_diagnostics_by_frame.append(light_diagnostics)
@@ -200,219 +232,355 @@ def analyze_sample_frames(
     return scene_vectors, overlay_items_by_frame, light_diagnostics_by_frame, motion_diagnostics_by_frame, certainty_diagnostics_by_frame
 
 
-def store_sample_result(scene_vector: dict) -> None:
-    save_scene_vector(scene_vector, SCENE_VECTOR_PATH)
-    st.session_state["analysis_result"] = {"mode": "sample", "scene_vector": scene_vector}
-
-
-def store_video_result(
-    metadata: dict[str, float | int],
-    sample_frames: list[Path],
-    scene_vectors: list[dict],
-    overlay_items_by_frame: list[list[dict]],
-    light_diagnostics_by_frame: list[dict],
-    motion_diagnostics_by_frame: list[dict],
-    certainty_diagnostics_by_frame: list[dict],
-    detector_backend: str,
-) -> None:
-    save_scene_vector(scene_vectors[0], SCENE_VECTOR_PATH)
-    save_scene_vectors(scene_vectors, SCENE_VECTOR_SEQUENCE_PATH)
-    st.session_state["analysis_result"] = {
-        "mode": "video",
+def build_video_analysis_result(uploaded_file, detector_settings: tuple[str, str, float, bool, int, bool]) -> dict[str, Any]:
+    backend, model_path, confidence_threshold, use_light_candidates, light_threshold, use_motion_assist = detector_settings
+    clear_previous_frames(FRAMES_DIR)
+    video_path = save_uploaded_video(uploaded_file, INPUT_DIR)
+    metadata = get_video_metadata(video_path)
+    sample_frames = extract_sample_frames(video_path, FRAMES_DIR, sample_fps=SAMPLE_FPS, max_frames=MAX_SAMPLE_FRAMES)
+    detector = create_object_detector(backend, model_path, confidence_threshold)
+    frame_size = (int(metadata["width"]), int(metadata["height"]))
+    scene_vectors, overlay_items_by_frame, light_diag, motion_diag, certainty_diag = analyze_sample_frames(
+        sample_frames,
+        detector,
+        frame_size,
+        use_light_candidates,
+        light_threshold,
+        use_motion_assist,
+    )
+    return {
         "metadata": metadata,
-        "frame_paths": [str(frame_path) for frame_path in sample_frames],
+        "frame_paths": [str(path) for path in sample_frames],
         "scene_vectors": scene_vectors,
         "overlay_items_by_frame": overlay_items_by_frame,
-        "light_diagnostics_by_frame": light_diagnostics_by_frame,
-        "motion_diagnostics_by_frame": motion_diagnostics_by_frame,
-        "certainty_diagnostics_by_frame": certainty_diagnostics_by_frame,
-        "detector_backend": detector_backend,
+        "light_diagnostics_by_frame": light_diag,
+        "motion_diagnostics_by_frame": motion_diag,
+        "certainty_diagnostics_by_frame": certainty_diag,
+        "detector_backend": backend,
     }
 
 
-def render_sample_result(scene_vector: dict) -> None:
-    summary = summarize_scene(scene_vector)
-    st.success("업로드 영상 없이 샘플 Scene Vector JSON을 생성했습니다.")
-    st.write(summary)
+def store_video_result(result: dict[str, Any]) -> None:
+    save_json_data(result["scene_vectors"][0], SCENE_VECTOR_PATH)
+    save_json_data(result["scene_vectors"], SCENE_VECTOR_SEQUENCE_PATH)
+    st.session_state["analysis_result"] = {"mode": "video", **result}
 
-    left_column, right_column = st.columns([1, 1])
-    with left_column:
+
+def get_selected_frame(result: dict[str, Any], slider_key: str):
+    frame_paths = [Path(path) for path in result["frame_paths"]]
+    selected_frame_number = st.slider("프레임 선택", min_value=1, max_value=len(frame_paths), value=1, format="프레임 %d", key=slider_key)
+    selected_index = selected_frame_number - 1
+    return selected_index, frame_paths[selected_index]
+
+
+def render_video_result(result: dict[str, Any]) -> None:
+    show_video_metadata(result["metadata"])
+    selected_index, frame_path = get_selected_frame(result, "analysis_frame_slider")
+    scene_vector = result["scene_vectors"][selected_index]
+    overlay_items = result["overlay_items_by_frame"][selected_index]
+    frame_bgr, frame_rgb = load_frame_rgb(frame_path)
+    overlay_rgb = cv2.cvtColor(draw_detection_overlay(frame_bgr, overlay_items), cv2.COLOR_BGR2RGB)
+
+    st.write(summarize_scene(scene_vector))
+    cols = st.columns(2)
+    with cols[0]:
+        st.image(frame_rgb, caption="원본 프레임")
+    with cols[1]:
+        st.image(overlay_rgb, caption="분석 박스")
+    left, right = st.columns([1, 1])
+    with left:
         st.markdown("### Scene Vector JSON")
         st.json(scene_vector)
-    with right_column:
+    with right:
         st.markdown("### 2.5D 탑뷰")
         st.pyplot(draw_top_view(scene_vector))
 
-    json_text = SCENE_VECTOR_PATH.read_text(encoding="utf-8")
-    st.download_button("scene_vector.json 다운로드", data=json_text, file_name="scene_vector.json", mime="application/json")
+
+def build_label_record(
+    frame_index: int,
+    frame_path: Path,
+    feedback_type: str,
+    bbox_2d: list[float],
+    original_item: dict[str, Any] | None = None,
+    corrected_tag: str | None = None,
+    note: str = "",
+) -> dict[str, Any]:
+    if feedback_type not in FEEDBACK_DEFINITIONS:
+        raise ValueError(f"지원하지 않는 피드백 타입입니다: {feedback_type}")
+    return {
+        "frame_index": frame_index,
+        "frame_path": frame_path.as_posix(),
+        "feedback_type": feedback_type,
+        "feedback_meaning": FEEDBACK_DEFINITIONS[feedback_type],
+        "bbox_2d": [round(float(value), 2) for value in bbox_2d],
+        "original_item": original_item,
+        "corrected_tag": corrected_tag,
+        "note": note,
+    }
 
 
-def render_rejection_caption(prefix: str, diagnostics: dict) -> None:
-    rejected_count = diagnostics.get("rejected_count", 0)
-    if not rejected_count:
+def get_display_image(image_rgb, max_width: int = 1100):
+    height, width = image_rgb.shape[:2]
+    display_width = min(max_width, width)
+    scale = display_width / width
+    display_height = int(height * scale)
+    return cv2.resize(image_rgb, (display_width, display_height)), scale, display_width, display_height
+
+
+def get_last_canvas_point(canvas_result, scale: float) -> tuple[float, float] | None:
+    objects = canvas_result.json_data.get("objects", []) if canvas_result and canvas_result.json_data else []
+    if not objects:
+        return None
+    point = objects[-1]
+    radius = float(point.get("radius", 0))
+    x = (float(point.get("left", 0)) + radius) / scale
+    y = (float(point.get("top", 0)) + radius) / scale
+    return x, y
+
+
+def find_item_at_point(items: list[dict[str, Any]], point: tuple[float, float] | None) -> dict[str, Any] | None:
+    if point is None:
+        return None
+    x, y = point
+    matches = []
+    for item in items:
+        bx, by, bw, bh = [float(value) for value in item["bbox_2d"]]
+        if bx <= x <= bx + bw and by <= y <= by + bh:
+            matches.append((bw * bh, item))
+    if not matches:
+        return None
+    return sorted(matches, key=lambda pair: pair[0])[0][1]
+
+
+def save_feedback_record(record: dict[str, Any], success_message: str) -> None:
+    append_jsonl(record, LABEL_FEEDBACK_PATH)
+    st.success(f"{success_message}: {LABEL_FEEDBACK_PATH.as_posix()}")
+
+
+def render_existing_box_feedback_panel(selected_index: int, frame_path: Path, selected_item: dict[str, Any] | None) -> None:
+    st.markdown("#### 피드백 패널")
+    st.caption("기존 박스는 모델이 맞다고 분류한 결과입니다.")
+    if selected_item is None:
+        st.info("왼쪽 캔버스에서 평가할 박스를 클릭하세요.")
         return
-    reason_text = ", ".join(f"{reason} {count}개" for reason, count in diagnostics.get("rejected_by_reason", {}).items())
-    st.caption(f"{prefix} {rejected_count}개: {reason_text}")
 
-
-def render_video_result(result: dict) -> None:
-    metadata = result["metadata"]
-    frame_paths = [Path(path) for path in result["frame_paths"]]
-    scene_vectors = result["scene_vectors"]
-    overlay_items_by_frame = result["overlay_items_by_frame"]
-    light_diagnostics_by_frame = result.get("light_diagnostics_by_frame", [])
-    motion_diagnostics_by_frame = result.get("motion_diagnostics_by_frame", [])
-    certainty_diagnostics_by_frame = result.get("certainty_diagnostics_by_frame", [])
-    detector_backend = result["detector_backend"]
-
-    show_video_metadata(metadata)
-    st.markdown("### 샘플 프레임 시퀀스")
-    selected_frame_number = st.slider(
-        "프레임 선택",
-        min_value=1,
-        max_value=len(frame_paths),
-        value=1,
-        format="프레임 %d",
-        help="슬라이더를 옆으로 움직이면 추출된 샘플 프레임을 영상처럼 넘겨볼 수 있습니다.",
+    st.success(f"선택: {selected_item.get('visual_layer')} / {selected_item.get('type')} / {selected_item.get('confidence', 0.0):.2f}")
+    feedback_type = st.radio(
+        "판정",
+        ["TP - 정답", "TN - 오분류/오탐"],
+        horizontal=False,
+        key=f"clicked_feedback_type_{selected_index}",
     )
-    selected_index = selected_frame_number - 1
-
-    selected_frame_path = frame_paths[selected_index]
-    selected_scene_vector = scene_vectors[selected_index]
-    selected_overlay_items = overlay_items_by_frame[selected_index]
-    selected_light_diagnostics = light_diagnostics_by_frame[selected_index] if selected_index < len(light_diagnostics_by_frame) else {}
-    selected_motion_diagnostics = motion_diagnostics_by_frame[selected_index] if selected_index < len(motion_diagnostics_by_frame) else {}
-    selected_certainty_diagnostics = (
-        certainty_diagnostics_by_frame[selected_index] if selected_index < len(certainty_diagnostics_by_frame) else {}
+    corrected_tag = (
+        st.selectbox("확정 객체 태그", OBJECT_CLASSES, key=f"clicked_positive_tag_{selected_index}")
+        if feedback_type.startswith("TP")
+        else st.selectbox("오분류 사유 또는 실제 태그", NEGATIVE_TAGS + OBJECT_CLASSES, key=f"clicked_negative_tag_{selected_index}")
     )
-
-    frame_bgr, frame_rgb = load_frame_rgb(selected_frame_path)
-    overlay_bgr = draw_detection_overlay(frame_bgr, selected_overlay_items)
-    overlay_rgb = cv2.cvtColor(overlay_bgr, cv2.COLOR_BGR2RGB)
-
-    summary = summarize_scene(selected_scene_vector)
-    object_count = len(selected_scene_vector.get("objects", []))
-    candidate_count = len(selected_scene_vector.get("object_candidates", []))
-    evidence_count = len(selected_scene_vector.get("raw_evidence", []))
-
-    st.success(f"프레임 {selected_index + 1}/{len(frame_paths)} 분석 결과를 표시합니다. 검출 백엔드: {detector_backend}")
-    st.write(summary)
-    st.info(f"확정 객체 {object_count}개, 객체 후보 {candidate_count}개, raw evidence {evidence_count}개")
-    if selected_certainty_diagnostics:
-        st.caption(f"승격 진단: {selected_certainty_diagnostics}")
-
-    render_rejection_caption("Scene Vector에서 제외된 광원/반사", selected_light_diagnostics)
-    render_rejection_caption("움직임 후보에서 제외된 영역", selected_motion_diagnostics)
-
-    frame_columns = st.columns(2)
-    with frame_columns[0]:
-        st.image(frame_rgb, caption=f"원본 프레임: {selected_frame_path.name}")
-    with frame_columns[1]:
-        st.image(overlay_rgb, caption="레이어 오버레이: confirmed/object candidate/raw evidence")
-
-    left_column, right_column = st.columns([1, 1])
-    with left_column:
-        st.markdown("### 선택 프레임 Scene Vector JSON")
-        st.json(selected_scene_vector)
-    with right_column:
-        st.markdown("### 선택 프레임 2.5D 탑뷰")
-        st.pyplot(draw_top_view(selected_scene_vector))
-
-    selected_json = json.dumps(selected_scene_vector, ensure_ascii=False, indent=2)
-    sequence_json = SCENE_VECTOR_SEQUENCE_PATH.read_text(encoding="utf-8")
-    download_columns = st.columns(2)
-    with download_columns[0]:
-        st.download_button(
-            "선택 프레임 scene_vector.json 다운로드",
-            data=selected_json,
-            file_name=f"scene_vector_frame_{selected_index + 1:04d}.json",
-            mime="application/json",
+    note = st.text_area("메모", key=f"clicked_note_{selected_index}", height=80)
+    if st.button("기존 박스 평가 저장", key=f"save_clicked_feedback_{selected_index}", use_container_width=True):
+        feedback_code = feedback_type.split(" - ")[0]
+        save_feedback_record(
+            build_label_record(
+                frame_index=selected_index + 1,
+                frame_path=frame_path,
+                feedback_type=feedback_code,
+                bbox_2d=selected_item["bbox_2d"],
+                original_item=selected_item,
+                corrected_tag=corrected_tag,
+                note=note,
+            ),
+            f"{feedback_code} 피드백을 저장했습니다",
         )
-    with download_columns[1]:
-        st.download_button("전체 scene_vectors.json 다운로드", data=sequence_json, file_name="scene_vectors.json", mime="application/json")
+
+
+def render_click_feedback(selected_index: int, frame_path: Path, overlay_items: list[dict[str, Any]]) -> None:
+    st.markdown("### 기존 박스 평가")
+    st.caption("왼쪽 캔버스에서 박스를 클릭하면 오른쪽 패널에서 TP/TN 판정을 저장합니다. 저장하지 않은 기존 박스는 TP로 간주합니다.")
+    if st_canvas is None:
+        st.warning("현재 Streamlit 실행 Python에서 canvas 라이브러리를 찾지 못했습니다. 서버를 재시작해 주세요.")
+        return
+
+    frame_bgr, _ = load_frame_rgb(frame_path)
+    overlay_rgb = cv2.cvtColor(draw_detection_overlay(frame_bgr, overlay_items), cv2.COLOR_BGR2RGB)
+    display_image, scale, display_width, display_height = get_display_image(overlay_rgb)
+    canvas_col, panel_col = st.columns([3, 1])
+    with canvas_col:
+        click_canvas = st_canvas(
+            fill_color="rgba(255, 0, 255, 0.35)",
+            stroke_width=2,
+            stroke_color="#ff00ff",
+            background_image=Image.fromarray(display_image),
+            update_streamlit=True,
+            height=display_height,
+            width=display_width,
+            drawing_mode="point",
+            key=f"select_box_canvas_{selected_index}",
+        )
+    selected_item = find_item_at_point(overlay_items, get_last_canvas_point(click_canvas, scale))
+    with panel_col:
+        render_existing_box_feedback_panel(selected_index, frame_path, selected_item)
+
+
+def get_last_canvas_rect(canvas_result, scale: float) -> list[float] | None:
+    objects = canvas_result.json_data.get("objects", []) if canvas_result and canvas_result.json_data else []
+    rects = [obj for obj in objects if obj.get("type") == "rect"]
+    if not rects:
+        return None
+    rect = rects[-1]
+    return [
+        float(rect.get("left", 0)) / scale,
+        float(rect.get("top", 0)) / scale,
+        float(rect.get("width", 0)) * float(rect.get("scaleX", 1)) / scale,
+        float(rect.get("height", 0)) * float(rect.get("scaleY", 1)) / scale,
+    ]
+
+
+def render_new_box_feedback_panel(selected_index: int, frame_path: Path, bbox_2d: list[float] | None) -> None:
+    st.markdown("#### 피드백 패널")
+    st.caption("새 박스는 모델이 아니라고 본 영역에 대한 평가입니다.")
+    if bbox_2d is None:
+        st.info("왼쪽 캔버스에서 새 박스를 드래그하세요.")
+        return
+
+    st.success(f"새 박스: {[round(value, 1) for value in bbox_2d]}")
+    feedback_type = st.radio(
+        "판정",
+        ["FP - 미분류 객체", "FN - 정상 미검출/비객체"],
+        horizontal=False,
+        key=f"draw_feedback_type_{selected_index}",
+    )
+    corrected_tag = (
+        st.selectbox("미분류 객체 태그", OBJECT_CLASSES, index=0, key=f"fp_tag_{selected_index}")
+        if feedback_type.startswith("FP")
+        else st.selectbox("비객체 사유", NEGATIVE_TAGS, key=f"fn_negative_tag_{selected_index}")
+    )
+    note = st.text_area("새 박스 메모", key=f"draw_note_{selected_index}", height=80)
+    if st.button("새 박스 평가 저장", key=f"save_draw_feedback_{selected_index}", use_container_width=True):
+        feedback_code = feedback_type.split(" - ")[0]
+        save_feedback_record(
+            build_label_record(
+                frame_index=selected_index + 1,
+                frame_path=frame_path,
+                feedback_type=feedback_code,
+                bbox_2d=bbox_2d,
+                corrected_tag=corrected_tag,
+                note=note,
+            ),
+            f"{feedback_code} 피드백을 저장했습니다",
+        )
+
+
+def render_drag_feedback(selected_index: int, frame_path: Path, overlay_rgb) -> None:
+    st.markdown("### 새 박스 평가")
+    st.caption("왼쪽 캔버스에서 누락 객체나 비객체 영역을 드래그하면 오른쪽 패널에서 FP/FN 판정을 저장합니다.")
+    if st_canvas is None:
+        return
+
+    display_image, scale, display_width, display_height = get_display_image(overlay_rgb)
+    canvas_col, panel_col = st.columns([3, 1])
+    with canvas_col:
+        canvas_result = st_canvas(
+            fill_color="rgba(255, 165, 0, 0.20)",
+            stroke_width=2,
+            stroke_color="#ff9900",
+            background_image=Image.fromarray(display_image),
+            update_streamlit=True,
+            height=display_height,
+            width=display_width,
+            drawing_mode="rect",
+            key=f"drag_box_canvas_{selected_index}",
+        )
+    with panel_col:
+        render_new_box_feedback_panel(selected_index, frame_path, get_last_canvas_rect(canvas_result, scale))
+
+
+def render_labeling_admin(result: dict[str, Any]) -> None:
+    st.markdown("## 라벨링 관리자")
+    st.caption("피드백 타입은 TP, TN, FP, FN 네 가지로 저장합니다. 기존 박스는 클릭하고, 누락 객체는 새 박스로 드래그하세요.")
+    with st.expander("피드백 타입 정의", expanded=False):
+        for code, meaning in FEEDBACK_DEFINITIONS.items():
+            st.write(f"- `{code}`: {meaning}")
+    selected_index, frame_path = get_selected_frame(result, "labeling_frame_slider")
+    overlay_items = result["overlay_items_by_frame"][selected_index]
+    frame_bgr, frame_rgb = load_frame_rgb(frame_path)
+    overlay_rgb = cv2.cvtColor(draw_detection_overlay(frame_bgr, overlay_items), cv2.COLOR_BGR2RGB)
+
+    cols = st.columns(2)
+    with cols[0]:
+        st.image(frame_rgb, caption="원본 프레임")
+    with cols[1]:
+        st.image(overlay_rgb, caption="분석 박스")
+
+    render_click_feedback(selected_index, frame_path, overlay_items)
+    render_drag_feedback(selected_index, frame_path, overlay_rgb)
+
+    if LABEL_FEEDBACK_PATH.exists():
+        st.download_button(
+            "누적 피드백 JSONL 다운로드",
+            data=LABEL_FEEDBACK_PATH.read_text(encoding="utf-8"),
+            file_name="label_feedback.jsonl",
+            mime="application/jsonl",
+        )
 
 
 def render_analysis_result() -> None:
     result = st.session_state.get("analysis_result")
-    if result is None:
-        return
-    if result["mode"] == "sample":
-        render_sample_result(result["scene_vector"])
-    elif result["mode"] == "video":
+    if result and result["mode"] == "video":
         render_video_result(result)
+    elif result and result["mode"] == "sample":
+        render_video_result(result["scene_vector"])
+
+
+def render_analysis_page(uploaded_file, detector_settings) -> None:
+    if st.button("분석 시작", type="primary"):
+        try:
+            if uploaded_file is None:
+                scene_vector = build_sample_scene_vector()
+                save_json_data(scene_vector, SCENE_VECTOR_PATH)
+                st.session_state["analysis_result"] = {"mode": "sample", "scene_vector": scene_vector}
+                st.json(scene_vector)
+            else:
+                result = build_video_analysis_result(uploaded_file, detector_settings)
+                store_video_result(result)
+        except Exception as exc:
+            st.error(f"분석 중 오류가 발생했습니다: {exc}")
+    result = st.session_state.get("analysis_result")
+    if result and result["mode"] == "video":
+        render_video_result(result)
+
+
+def render_labeling_page(uploaded_file, detector_settings) -> None:
+    if st.button("라벨링용 분석 시작", type="primary"):
+        if uploaded_file is None:
+            st.warning("라벨링 관리자 페이지에서는 영상을 업로드해야 합니다.")
+            return
+        try:
+            st.session_state["labeling_result"] = build_video_analysis_result(uploaded_file, detector_settings)
+        except Exception as exc:
+            st.error(f"라벨링용 분석 중 오류가 발생했습니다: {exc}")
+    result = st.session_state.get("labeling_result")
+    if result is not None:
+        render_labeling_admin(result)
 
 
 def main() -> None:
     st.set_page_config(page_title="BlackBox2Vector", layout="wide")
-
     st.title("BlackBox2Vector")
-    st.subheader("2D 블랙박스 영상에서 Scene Vector JSON으로")
-    st.write(
-        "데모 v1.4.4는 YOLO 기반 결과를 더 보수적으로 다룹니다. "
-        "밝은 점과 움직임 영역은 최종 객체가 아니라 raw evidence 또는 object candidate로 분리합니다."
-    )
+    st.subheader("2D 블랙박스 영상에서 Scene Vector JSON과 학습 피드백으로")
+    st.write("v1.5 라벨링 관리자는 박스 클릭 피드백과 드래그 박스 피드백을 지원합니다.")
 
-    (
-        detector_backend,
-        yolo_model_path,
-        confidence_threshold,
-        use_light_candidates,
-        light_brightness_threshold,
-        use_motion_assist,
-    ) = show_detector_settings()
+    page_mode = st.sidebar.radio("화면 선택", ["분석 데모", "라벨링 관리자"])
+    detector_settings = show_detector_settings()
     show_runtime_status()
-
     uploaded_file = st.file_uploader("블랙박스 영상 업로드", type=["mp4", "avi", "mov", "mkv"], accept_multiple_files=False)
-
-    if uploaded_file is not None:
+    if uploaded_file:
         st.info(f"업로드 파일: {uploaded_file.name}")
         st.info(f"파일 크기: {format_file_size(uploaded_file.size)}")
+
+    if page_mode == "분석 데모":
+        render_analysis_page(uploaded_file, detector_settings)
     else:
-        st.caption("아직 업로드된 영상이 없습니다. 업로드 없이 실행하면 샘플 결과를 확인합니다.")
-
-    if st.button("분석 시작", type="primary"):
-        try:
-            if uploaded_file is None:
-                store_sample_result(build_sample_scene_vector())
-            else:
-                clear_previous_frames(FRAMES_DIR)
-                video_path = save_uploaded_video(uploaded_file, INPUT_DIR)
-                metadata = get_video_metadata(video_path)
-                sample_frames = extract_sample_frames(video_path, FRAMES_DIR, sample_fps=SAMPLE_FPS, max_frames=MAX_SAMPLE_FRAMES)
-                detector = create_object_detector(
-                    backend=detector_backend,
-                    model_path=yolo_model_path,
-                    confidence_threshold=confidence_threshold,
-                )
-                frame_size = (int(metadata["width"]), int(metadata["height"]))
-                (
-                    scene_vectors,
-                    overlay_items_by_frame,
-                    light_diagnostics_by_frame,
-                    motion_diagnostics_by_frame,
-                    certainty_diagnostics_by_frame,
-                ) = analyze_sample_frames(
-                    sample_frames=sample_frames,
-                    detector=detector,
-                    frame_size=frame_size,
-                    use_light_candidates=use_light_candidates,
-                    light_brightness_threshold=light_brightness_threshold,
-                    use_motion_assist=use_motion_assist,
-                )
-                store_video_result(
-                    metadata=metadata,
-                    sample_frames=sample_frames,
-                    scene_vectors=scene_vectors,
-                    overlay_items_by_frame=overlay_items_by_frame,
-                    light_diagnostics_by_frame=light_diagnostics_by_frame,
-                    motion_diagnostics_by_frame=motion_diagnostics_by_frame,
-                    certainty_diagnostics_by_frame=certainty_diagnostics_by_frame,
-                    detector_backend=detector_backend,
-                )
-        except Exception as exc:
-            st.error(f"분석 중 오류가 발생했습니다: {exc}")
-
-    render_analysis_result()
+        render_labeling_page(uploaded_file, detector_settings)
 
 
 if __name__ == "__main__":

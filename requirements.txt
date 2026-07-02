@@ -4,3 +4,4 @@ numpy
 matplotlib
 pandas
 ultralytics
+streamlit-drawable-canvas
