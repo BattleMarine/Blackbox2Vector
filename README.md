@@ -2,16 +2,18 @@
 
 BlackBox2Vector는 2D 블랙박스 영상을 입력받아 객체, 차선, 도로 기준선, 움직임 정보를 추출하고, 이를 자차 기준 3D Scene Vector JSON 데이터로 변환하기 위한 데모 프로젝트입니다.
 
-데모 v1.3은 정밀한 3D 복원 시스템이 아닙니다. 업로드한 동영상에서 샘플 프레임 시퀀스를 추출하고, 더미 detector 또는 Ultralytics YOLO 데모 백엔드 결과를 각 샘플 프레임에 적용해 객체의 3D 위치 벡터, 움직임 벡터, 신뢰도, 추정 범위를 JSON으로 저장하는 초기 파이프라인을 검증합니다.
+데모 v1.4는 정밀한 3D 복원 시스템이 아닙니다. 업로드한 동영상에서 샘플 프레임 시퀀스를 추출하고, 더미 detector 또는 Ultralytics YOLO 데모 백엔드 결과에 야간 전조등/고휘도 후보 검출을 더해 객체의 3D 위치 벡터, 움직임 벡터, 신뢰도, 추정 범위를 JSON으로 저장하는 초기 파이프라인을 검증합니다.
 
 핵심 산출물은 단일 프레임 호환용 `scene_vector.json`과 샘플 프레임 시퀀스용 `scene_vectors.json`입니다.
 
-## 데모 v1.3 목표
+## 데모 v1.4 목표
 
 - Python + Streamlit 기반 최소 실행 앱 제공
 - 영상 업로드, 저장, 메타데이터 표시
 - OpenCV 기반 샘플 프레임 추출
 - 추출된 샘플 프레임 전체에 더미 또는 YOLO detection 적용
+- YOLO가 놓치기 쉬운 야간 전조등/고휘도 객체 후보 보존
+- 앞 프레임의 고휘도 후보와 이어지는 temporal 후보 신뢰도 보강
 - 슬라이더 기반 샘플 프레임 시퀀스 탐색 UI 제공
 - YOLO에 종속되지 않는 detector backend 선택 구조 마련
 - 2D bbox 기반 3D 위치 추정 초안 구현
@@ -28,13 +30,15 @@ BlackBox2Vector는 2D 블랙박스 영상을 입력받아 객체, 차선, 도로
 - 슬라이더를 통한 프레임별 원본/오버레이/JSON/탑뷰 전환
 - 더미 detection 오버레이 표시
 - YOLO detection 오버레이 표시
+- 전조등/고휘도 후보 오버레이 표시
 - 프레임별 Scene Vector JSON 생성 및 저장
+- detection 근거와 후보 여부를 JSON에 기록
 - JSON 다운로드 버튼 제공
 - 규칙 기반 장면 요약
 - Matplotlib 기반 간단한 2.5D 탑뷰 표시
 - OpenCV 기반 프레임 추출 유틸리티 준비
 
-## 데모 v1.3에서 제외하는 기능
+## 데모 v1.4에서 제외하는 기능
 
 - YOLO 외 고급 비전 모델 연결
 - 고급 차선 검출
@@ -46,6 +50,7 @@ BlackBox2Vector는 2D 블랙박스 영상을 입력받아 객체, 차선, 도로
 - 법적 사고 판단 로직
 - 프레임 간 동일 객체 추적
 - 실제 속도 기반 움직임 벡터 추정
+- 도로 ROI 기반 강한 필터링
 
 ## 시스템 흐름
 
@@ -55,12 +60,15 @@ BlackBox2Vector는 2D 블랙박스 영상을 입력받아 객체, 차선, 도로
   -> 샘플 프레임 추출
   -> detector backend 선택
   -> 모든 샘플 프레임에 더미 또는 YOLO 객체 검출 적용
+  -> 야간 전조등/고휘도 blob 후보 검출
+  -> 앞 프레임의 고휘도 후보와 이어지는 경우 temporal 후보 보강
+  -> 모델 검출과 고휘도 후보 병합
   -> 프레임별 2D bbox 기반 3D 위치 추정
   -> Scene Vector JSON 시퀀스 생성
   -> 슬라이더로 프레임별 요약, 오버레이, 2.5D 탑뷰 표시
 ```
 
-현재 데모 앱은 업로드 영상에서 최대 12개의 샘플 프레임을 추출합니다. 객체 검출은 데모용 YOLO 백엔드 또는 프레임 크기에 맞춘 더미 detection 중 선택할 수 있으며, 슬라이더로 샘플 프레임을 넘기며 결과를 확인할 수 있습니다.
+현재 데모 앱은 업로드 영상에서 최대 12개의 샘플 프레임을 추출합니다. 객체 검출은 데모용 YOLO 백엔드 또는 프레임 크기에 맞춘 더미 detection 중 선택할 수 있으며, 야간 전조등/고휘도 후보 보존을 함께 켤 수 있습니다. 슬라이더로 샘플 프레임을 넘기며 결과를 확인할 수 있습니다.
 
 ## Scene Vector JSON 요약
 
@@ -78,6 +86,8 @@ Scene Vector JSON은 자차를 원점으로 하는 추정 좌표계 안에서 �
 | `ego_vehicle` | 자차 위치와 진행 방향 |
 | `objects` | 검출 객체 목록 |
 | `events` | 장면 이벤트 목록 |
+
+v1.4부터 객체 항목에는 `subtype`, `detection_sources`, `detection_reason`, `is_candidate`가 포함됩니다. 이 필드는 YOLO가 차량 형상을 놓친 야간 장면에서도 전조등 기반 후보를 `unknown` 또는 `car/headlight_pair`로 보존하기 위해 사용합니다.
 
 ## 좌표계 정의
 
@@ -121,6 +131,7 @@ blackbox2vector/
 │  ├─ __init__.py
 │  ├─ video_loader.py
 │  ├─ detector.py
+│  ├─ light_candidate_detector.py
 │  ├─ position_estimator.py
 │  ├─ scene_vector.py
 │  ├─ visualizer.py
@@ -155,6 +166,8 @@ YOLO 백엔드를 처음 사용할 때 `yolov8n.pt` 가중치가 로컬에 없�
 - 앱 사이드바 detector backend 선택 UI 추가 완료
 - 추출된 샘플 프레임 전체에 detector 적용 완료
 - 슬라이더 기반 샘플 프레임 시퀀스 탐색 UI 추가 완료
+- 야간 전조등/고휘도 후보 검출 모듈 추가 완료
+- 전조등 후보와 모델 detection 병합 구조 추가 완료
 - 2D bbox 기반 3D 위치 추정 초안 작성 완료
 - Scene Vector JSON 단일/시퀀스 파일 저장 완료
 - `scene_vector.json` 및 `scene_vectors.json` 다운로드 버튼 추가 완료
@@ -167,9 +180,9 @@ YOLO 백엔드를 처음 사용할 때 `yolov8n.pt` 가중치가 로컬에 없�
 
 1. 프레임 간 객체 추적과 움직임 벡터 추정
 2. YOLO track 모드 또는 별도 tracker 백엔드 검토
-3. 차선과 도로 기준선 추정 모듈 설계
-4. 샘플링 FPS와 최대 프레임 수 UI 조정 기능 추가
-5. YOLO 외 segmentation/depth 백엔드 후보 설계
+3. 전조등 후보 threshold와 pairing 기준을 실제 야간 영상으로 튜닝
+4. 차선과 도로 기준선 추정 모듈 설계
+5. 샘플링 FPS와 최대 프레임 수 UI 조정 기능 추가
 
 ## 의사결정 기록
 
@@ -177,7 +190,8 @@ YOLO 백엔드를 처음 사용할 때 `yolov8n.pt` 가중치가 로컬에 없�
 
 ## 한계 및 주의사항
 
-- 데모 v1.3의 3D 좌표는 정밀 복원 결과가 아닙니다.
+- 데모 v1.4의 3D 좌표는 정밀 복원 결과가 아닙니다.
 - 거리 추정은 카메라 캘리브레이션 없이 bbox 위치와 크기를 이용한 휴리스틱입니다.
 - YOLO 결과는 프레임별 bbox이며, 현재는 프레임 간 동일 객체 추적을 보장하지 않습니다.
+- 전조등/고휘도 후보는 차량이라고 확정하지 않고 `is_candidate`와 `detection_reason`을 함께 기록합니다.
 - 법적 사고 판단이나 운전자 과실 판단에는 사용할 수 없습니다.

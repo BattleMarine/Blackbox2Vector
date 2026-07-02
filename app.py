@@ -7,6 +7,7 @@ from pathlib import Path
 import cv2
 import streamlit as st
 
+from src.light_candidate_detector import detect_light_candidates, merge_detections
 from src.scene_vector import build_scene_vector, build_sample_scene_vector
 from src.summarizer import summarize_scene
 from src.video_loader import extract_sample_frames, get_video_metadata, save_uploaded_video
@@ -78,7 +79,7 @@ def show_video_metadata(metadata: dict[str, float | int]) -> None:
     metric_columns[3].metric("길이", f"{metadata['duration_seconds']:.2f}초")
 
 
-def show_detector_settings() -> tuple[str, str, float]:
+def show_detector_settings() -> tuple[str, str, float, bool, int]:
     """데모용 객체 검출 백엔드 설정을 사이드바에서 받는다."""
     st.sidebar.header("검출 설정")
     backend_label = st.sidebar.radio(
@@ -89,13 +90,17 @@ def show_detector_settings() -> tuple[str, str, float]:
     backend = "yolo" if backend_label == "YOLO detector" else "dummy"
     model_path = st.sidebar.text_input("YOLO 모델 경로", value=YOLO_DEFAULT_MODEL)
     confidence_threshold = st.sidebar.slider("YOLO 신뢰도 기준", 0.05, 0.90, 0.25, 0.05)
+    use_light_candidates = st.sidebar.checkbox("전조등/고휘도 후보 보존", value=True)
+    light_brightness_threshold = st.sidebar.slider("전조등 밝기 기준", 180, 255, 220, 5)
 
     if backend == "dummy":
         st.sidebar.caption("현재 선택: 프레임 크기 기반 가상 bbox")
     else:
         st.sidebar.caption("현재 선택: Ultralytics YOLO 데모 백엔드")
+    if use_light_candidates:
+        st.sidebar.caption("v1.4 보강: 야간 전조등/고휘도 blob을 unknown 또는 차량 후보로 보존합니다.")
 
-    return backend, model_path, confidence_threshold
+    return backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold
 
 
 def show_runtime_status() -> None:
@@ -128,15 +133,27 @@ def analyze_sample_frames(
     sample_frames: list[Path],
     detector,
     frame_size: tuple[int, int],
+    use_light_candidates: bool,
+    light_brightness_threshold: int,
 ) -> tuple[list[dict], list[list[dict]]]:
     """추출된 모든 샘플 프레임에 detector를 적용해 프레임별 Scene Vector를 만든다."""
     scene_vectors: list[dict] = []
     detections_by_frame: list[list[dict]] = []
+    previous_light_candidates: list[dict] = []
     progress = st.progress(0, text="샘플 프레임 분석 준비 중")
 
     for frame_order, frame_path in enumerate(sample_frames, start=1):
         frame_bgr, _ = load_frame_rgb(frame_path)
-        detections = detector.detect_objects(frame_bgr)
+        model_detections = detector.detect_objects(frame_bgr)
+        light_candidates: list[dict] = []
+        if use_light_candidates:
+            light_candidates = detect_light_candidates(
+                frame_bgr,
+                previous_candidates=previous_light_candidates,
+                brightness_threshold=light_brightness_threshold,
+            )
+        detections = merge_detections(model_detections, light_candidates)
+        previous_light_candidates = light_candidates
         timestamp = round((frame_order - 1) / SAMPLE_FPS, 2)
         scene_vector = build_scene_vector(
             frame_index=frame_order,
@@ -237,11 +254,16 @@ def render_video_result(result: dict) -> None:
     overlay_rgb = cv2.cvtColor(overlay_bgr, cv2.COLOR_BGR2RGB)
 
     summary = summarize_scene(selected_scene_vector)
+    light_candidate_count = sum(
+        1 for detection in selected_detections if "headlight_blob" in detection.get("detection_sources", [])
+    )
     st.success(
         f"프레임 {selected_index + 1}/{len(frame_paths)} 분석 결과를 표시합니다. "
         f"검출 백엔드: {detector_backend}"
     )
     st.write(summary)
+    if light_candidate_count:
+        st.info(f"전조등/고휘도 후보 {light_candidate_count}개를 Scene Vector에 보존했습니다.")
     if not selected_detections:
         st.warning("선택한 프레임에서 검출된 객체가 없습니다. objects는 빈 목록입니다.")
 
@@ -302,11 +324,17 @@ def main() -> None:
     st.subheader("2D 블랙박스 영상에서 Scene Vector JSON으로")
 
     st.write(
-        "데모 v1.3은 정밀한 3D 복원 시스템이 아니라, 샘플 프레임 시퀀스의 detector 결과를 "
-        "자차 기준 Scene Vector JSON 배열로 변환하는 구조 확인용 앱입니다."
+        "데모 v1.4는 정밀한 3D 복원 시스템이 아니라, YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보까지 "
+        "자차 기준 Scene Vector JSON 배열에 보존하는 구조 확인용 앱입니다."
     )
 
-    detector_backend, yolo_model_path, confidence_threshold = show_detector_settings()
+    (
+        detector_backend,
+        yolo_model_path,
+        confidence_threshold,
+        use_light_candidates,
+        light_brightness_threshold,
+    ) = show_detector_settings()
     show_runtime_status()
 
     uploaded_file = st.file_uploader(
@@ -346,6 +374,8 @@ def main() -> None:
                     sample_frames=sample_frames,
                     detector=detector,
                     frame_size=frame_size,
+                    use_light_candidates=use_light_candidates,
+                    light_brightness_threshold=light_brightness_threshold,
                 )
                 store_video_result(
                     metadata=metadata,

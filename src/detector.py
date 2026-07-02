@@ -77,8 +77,12 @@ class ObjectDetector:
             {
                 "track_id": 1,
                 "type": "car",
+                "subtype": None,
                 "bbox_2d": [bbox_x, bbox_y, bbox_width, bbox_height],
                 "confidence": 0.87,
+                "detection_sources": ["dummy"],
+                "detection_reason": "파이프라인 검증을 위한 프레임 크기 기반 가상 차량입니다.",
+                "is_candidate": False,
             }
         ]
 
@@ -114,6 +118,7 @@ class ObjectDetector:
                 {
                     "track_id": len(detections) + 1,
                     "type": object_type,
+                    "subtype": None,
                     "bbox_2d": [
                         round(x1, 2),
                         round(y1, 2),
@@ -121,6 +126,9 @@ class ObjectDetector:
                         round(height, 2),
                     ],
                     "confidence": round(confidence, 4),
+                    "detection_sources": ["yolo"],
+                    "detection_reason": "Ultralytics YOLO 데모 백엔드가 객체 bbox를 반환했습니다.",
+                    "is_candidate": False,
                 }
             )
 

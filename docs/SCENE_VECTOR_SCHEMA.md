@@ -48,7 +48,38 @@ v1.3의 `scene_vectors.json`은 같은 Scene Vector 객체를 프레임 순서�
       "heading": [0.0, 1.0, 0.0],
       "speed": null
     },
-    "objects": [],
+    "objects": [
+      {
+        "track_id": "light_001",
+        "type": "unknown",
+        "subtype": "possible_vehicle_headlight",
+        "bbox_2d": [610, 330, 92, 38],
+        "confidence": 0.48,
+        "detection_sources": ["headlight_blob", "temporal_motion"],
+        "detection_reason": "야간 프레임에서 차량 형상 대신 고휘도 전조등 후보가 감지되었습니다.",
+        "is_candidate": true,
+        "position_3d": {
+          "estimate": [0.4, 22.0, 0.0],
+          "range": {
+            "x": [-0.2, 1.0],
+            "y": [15.4, 28.6],
+            "z": [0.0, 0.0]
+          },
+          "confidence": 0.5
+        },
+        "motion_vector_3d": {
+          "vx": 0.0,
+          "vy": 0.0,
+          "vz": 0.0,
+          "confidence": 0.0
+        },
+        "state": {
+          "distance_zone": "mid",
+          "lane_position": "center_front",
+          "motion_state": "unknown"
+        }
+      }
+    ],
     "events": []
   }
 ]
@@ -89,11 +120,25 @@ v1.3의 `scene_vectors.json`은 같은 Scene Vector 객체를 프레임 순서�
 |---|---|---|---|---|
 | `track_id` | number 또는 string | 예 | 객체 추적 ID | `1` |
 | `type` | string | 예 | 객체 종류 | `car` |
+| `subtype` | string 또는 null | 아니오 | 보조 객체 유형 | `headlight_pair` |
 | `bbox_2d` | number array | 예 | 2D bbox `[x, y, width, height]` | `[520, 310, 180, 90]` |
 | `confidence` | number | 예 | 객체 검출 신뢰도 | `0.87` |
+| `detection_sources` | string array | 아니오 | 객체 후보를 만든 근거 목록 | `["yolo", "headlight_blob"]` |
+| `detection_reason` | string | 아니오 | 사람이 읽을 수 있는 검출 근거 설명 | `전조등 후보가 감지됨` |
+| `is_candidate` | boolean | 아니오 | 확정 객체가 아니라 보존 후보인지 여부 | `true` |
 | `position_3d` | object | 예 | 3D 위치 추정값 | 아래 표 참고 |
 | `motion_vector_3d` | object | 예 | 3D 움직임 벡터 | 아래 표 참고 |
 | `state` | object | 예 | 객체 상태 요약 | 아래 표 참고 |
+
+## detection_sources
+
+| 값 | 의미 |
+|---|---|
+| `dummy` | 앱 파이프라인 검증용 더미 detector 결과 |
+| `yolo` | Ultralytics YOLO 데모 백엔드 결과 |
+| `headlight_blob` | 야간 전조등/고휘도 blob 기반 후보 |
+| `temporal_motion` | 이전 샘플 프레임 후보와 이어진 고휘도 후보 |
+| `sample` | 업로드 없이 생성한 샘플 데이터 |
 
 ## position_3d
 
@@ -139,4 +184,5 @@ z: 위쪽 양수, 도로면 0
 - `z`는 초기에는 도로면 기준 `0.0`으로 둡니다.
 - 움직임 벡터는 추후 프레임 간 추적이 연결될 때 갱신합니다.
 - `scene_vectors.json`은 프레임별 결과 배열이며, 현재는 프레임 간 동일 객체 ID 연속성을 보장하지 않습니다.
+- `headlight_blob` 후보는 차량 형상이 보이지 않는 야간 장면의 누락을 줄이기 위한 보존 후보이며 차량 확정 판정이 아닙니다.
 - 모든 위치값은 영상 기반 추정값이며 `confidence`와 `range`를 함께 해석해야 합니다.

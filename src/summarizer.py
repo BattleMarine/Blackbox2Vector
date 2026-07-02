@@ -24,9 +24,16 @@ def summarize_scene(scene_vector: dict[str, Any]) -> str:
         "bus": "버스",
         "person": "보행자",
         "motorcycle": "오토바이",
+        "unknown": "미확정 객체",
     }.get(first_object.get("type", "unknown"), "객체")
+    object_unit = "대" if first_object.get("type") in {"car", "truck", "bus", "motorcycle"} else "개"
+
+    source_text = ""
+    if "headlight_blob" in first_object.get("detection_sources", []):
+        source_text = " 전조등/고휘도 후보 기반으로 보존된 객체입니다."
 
     return (
-        f"{zone_text}에 {object_type_text} {len(objects)}대가 감지되었습니다. "
+        f"{zone_text}에 {object_type_text} {len(objects)}{object_unit}가 감지되었습니다. "
         f"해당 객체의 위치는 영상 기반 추정값이며 신뢰도는 {confidence:.2f}입니다."
+        f"{source_text}"
     )

@@ -12,16 +12,22 @@ def draw_detection_overlay(frame: Any, detections: list[dict[str, Any]]) -> Any:
     overlay = frame.copy()
     for detection in detections:
         x, y, width, height = [int(value) for value in detection["bbox_2d"]]
-        label = f"{detection.get('type', 'unknown')} {detection.get('confidence', 0.0):.2f}"
+        sources = detection.get("detection_sources", [])
+        is_light_candidate = "headlight_blob" in sources
+        color = (0, 215, 255) if is_light_candidate else (0, 255, 0)
+        subtype = detection.get("subtype")
+        type_label = detection.get("type", "unknown")
+        label_type = f"{type_label}/{subtype}" if subtype else type_label
+        label = f"{label_type} {detection.get('confidence', 0.0):.2f}"
 
-        cv2.rectangle(overlay, (x, y), (x + width, y + height), (0, 255, 0), 2)
+        cv2.rectangle(overlay, (x, y), (x + width, y + height), color, 2)
         cv2.putText(
             overlay,
             label,
             (x, max(y - 8, 0)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
-            (0, 255, 0),
+            color,
             2,
             cv2.LINE_AA,
         )
@@ -42,8 +48,9 @@ def draw_top_view(scene_vector: dict[str, Any]):
     for obj in scene_vector.get("objects", []):
         position = obj["position_3d"]["estimate"]
         x, y, _ = position
-        axis.scatter([x], [y], marker="s", s=120, color="tab:red")
-        axis.text(x, y + 1.0, f"{obj['type']} #{obj['track_id']}", ha="center", color="tab:red")
+        color = "tab:orange" if "headlight_blob" in obj.get("detection_sources", []) else "tab:red"
+        axis.scatter([x], [y], marker="s", s=120, color=color)
+        axis.text(x, y + 1.0, f"{obj['type']} #{obj['track_id']}", ha="center", color=color)
 
         x_range = obj["position_3d"]["range"]["x"]
         y_range = obj["position_3d"]["range"]["y"]
@@ -51,7 +58,7 @@ def draw_top_view(scene_vector: dict[str, Any]):
             x_range,
             y_range[0],
             y_range[1],
-            color="tab:red",
+            color=color,
             alpha=0.12,
         )
 

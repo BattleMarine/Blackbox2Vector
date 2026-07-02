@@ -41,8 +41,12 @@ def build_scene_vector(
             {
                 "track_id": detection.get("track_id"),
                 "type": object_type,
+                "subtype": detection.get("subtype"),
                 "bbox_2d": bbox_2d,
                 "confidence": detection.get("confidence", 0.0),
+                "detection_sources": detection.get("detection_sources", ["unknown"]),
+                "detection_reason": detection.get("detection_reason", "검출 근거가 기록되지 않았습니다."),
+                "is_candidate": detection.get("is_candidate", False),
                 "position_3d": position_3d,
                 "motion_vector_3d": {
                     "vx": 0.0,
@@ -88,6 +92,10 @@ def build_sample_scene_vector() -> dict[str, Any]:
             "type": "car",
             "bbox_2d": [520, 310, 180, 90],
             "confidence": 0.87,
+            "subtype": None,
+            "detection_sources": ["sample"],
+            "detection_reason": "앱 초기 화면 검증을 위한 샘플 차량입니다.",
+            "is_candidate": False,
         }
     ]
     return build_scene_vector(
