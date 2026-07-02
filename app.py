@@ -76,7 +76,6 @@ SCENE_VECTOR_SEQUENCE_PATH = OUTPUT_DIR / "scene_vectors.json"
 LABEL_FEEDBACK_PATH = OUTPUT_DIR / "label_feedback.jsonl"
 YOLO_DEFAULT_MODEL = "yolov8n.pt"
 SAMPLE_FPS = 1
-MAX_SAMPLE_FRAMES = 12
 OBJECT_CLASSES = ["car", "truck", "bus", "motorcycle", "bicycle", "person"]
 NEGATIVE_TAGS = ["false_positive", "streetlight", "sign_light", "windshield_drop", "road_reflection", "hood_reflection", "other"]
 FEEDBACK_DEFINITIONS = {
@@ -238,7 +237,7 @@ def build_video_analysis_result(uploaded_file, detector_settings: tuple[str, str
     clear_previous_frames(FRAMES_DIR)
     video_path = save_uploaded_video(uploaded_file, INPUT_DIR)
     metadata = get_video_metadata(video_path)
-    sample_frames = extract_sample_frames(video_path, FRAMES_DIR, sample_fps=SAMPLE_FPS, max_frames=MAX_SAMPLE_FRAMES)
+    sample_frames = extract_sample_frames(video_path, FRAMES_DIR, sample_fps=SAMPLE_FPS, max_frames=None)
     detector = create_object_detector(backend, model_path, confidence_threshold)
     frame_size = (int(metadata["width"]), int(metadata["height"]))
     scene_vectors, overlay_items_by_frame, light_diag, motion_diag, certainty_diag = analyze_sample_frames(

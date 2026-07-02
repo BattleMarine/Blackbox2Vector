@@ -68,7 +68,7 @@
 |---|---|---|---|---|---|
 | `save_uploaded_video` | 함수 | `uploaded_file`, `save_dir` | 저장된 `Path` | Streamlit 업로드 파일을 디스크에 저장 | 파일 없음 또는 저장 실패 시 예외 |
 | `get_video_metadata` | 함수 | `video_path` | 메타데이터 dict | FPS, 프레임 수, 해상도, 길이 확인 | OpenCV 사용 |
-| `extract_sample_frames` | 함수 | `video_path`, `output_dir`, `sample_fps`, `max_frames` | 프레임 경로 목록 | 지정한 초당 샘플 수로 이미지 추출 | 최대 프레임 수 제한 가능 |
+| `extract_sample_frames` | 함수 | `video_path`, `output_dir`, `sample_fps`, `max_frames` | 프레임 경로 목록 | 지정한 초당 샘플 수로 이미지 추출 | 앱에서는 `max_frames=None`으로 전체 영상 추출 |
 
 ## src/detector.py
 
