@@ -1,5 +1,17 @@
 # AGENTS.md
 
+## v1.4.4 파이프라인 원칙
+
+v1.4.4 이후 작업에서는 검출 결과를 `raw_evidence`, `object_candidates`, `objects`로 분리합니다.
+
+- 밝은 점, 전조등 가능 영역, 움직임 영역은 최종 객체가 아니라 raw evidence입니다.
+- `unknown`, `motion_region`, `bright_region`, `reflection`은 `objects`에 직접 넣지 않습니다.
+- YOLO 결과도 신뢰도와 약한 ROI 기준을 통과하지 못하면 object candidate로 내립니다.
+- Scene Vector의 `objects`는 확정 객체만 포함해야 합니다.
+- SAM2 계열 segmentation은 후보의 윤곽 정제와 접지점 보조 목적으로 검토하며, false positive 억제 구조를 대체하지 않습니다.
+
+주요 모듈에 `src/evidence_pipeline.py`가 추가되었습니다.
+
 ## 목적
 
 이 문서는 BlackBox2Vector 프로젝트를 사람이든 AI 에이전트든 일관성 있게 개발하기 위한 공개 작업 지침서입니다.

@@ -1,5 +1,59 @@
 # SCENE_VECTOR_SCHEMA.md
 
+## v1.4.4 Scene Vector 구조
+
+v1.4.4부터 Scene Vector는 불확실성을 명시하기 위해 다음 세 목록을 구분합니다.
+
+```json
+{
+  "raw_evidence": [],
+  "object_candidates": [],
+  "objects": []
+}
+```
+
+| 필드 | 의미 |
+|---|---|
+| `raw_evidence` | 밝은 점, 움직임 영역, 반사 가능 영역처럼 객체라고 확정할 수 없는 원시 관측값 |
+| `object_candidates` | 여러 evidence 또는 낮은 신뢰도 모델 결과를 바탕으로 만든 중간 후보 |
+| `objects` | Scene Vector의 최종 확정 객체 |
+
+중요 규칙:
+
+- `unknown`, `motion_region`, `bright_region`, `reflection`은 `objects`에 직접 저장하지 않습니다.
+- 전조등과 밝은 영역은 객체가 아니라 evidence입니다.
+- YOLO 결과도 신뢰도와 ROI 기준이 부족하면 `object_candidates`로 내려갑니다.
+- 3D 위치 추정과 2.5D 탑뷰는 기본적으로 확정 `objects`에만 적용합니다.
+
+### raw_evidence 항목
+
+| 필드 | 타입 | 의미 |
+|---|---|---|
+| `evidence_id` | string | 원시 관측값 ID |
+| `type` | string | `bright_region`, `motion_region` 등 |
+| `subtype` | string 또는 null | 세부 유형 |
+| `bbox_2d` | number array | 관측 영역 |
+| `evidence_confidence` | number | evidence 추출 신뢰도 |
+| `motion_score` | number | 움직임 근거 점수 |
+| `sources` | string array | evidence 출처 |
+| `reason` | string | evidence로 남긴 이유 |
+| `status` | string | `observed`, `ignored` 등 |
+
+### object_candidates 항목
+
+| 필드 | 타입 | 의미 |
+|---|---|---|
+| `candidate_id` | string | 후보 ID |
+| `type` | string | 후보 객체 유형 |
+| `subtype` | string 또는 null | 세부 후보 유형 |
+| `bbox_2d` | number array | 후보 영역 |
+| `candidate_confidence` | number | 후보 종합 신뢰도 |
+| `motion_score` | number | 움직임 근거 점수 |
+| `detection_sources` | string array | 후보 생성 근거 |
+| `evidence_ids` | string array | 연결된 raw evidence ID |
+| `reason` | string | 후보로 남긴 이유 |
+| `status` | string | `pending`, `insufficient_evidence`, `promoted`, `rejected` 등 |
+
 ## Scene Vector JSON 전체 구조
 
 `scene_vector.json`은 단일 프레임을 표현하는 하나의 Scene Vector 객체입니다.

@@ -21,48 +21,54 @@ def classify_lane_position(position_x: float) -> str:
     return "center_front"
 
 
+def build_confirmed_object(
+    detection: dict[str, Any],
+    frame_size: tuple[int, int],
+) -> dict[str, Any]:
+    """확정 객체만 3D 위치 추정 대상이 되며, 후보와 evidence는 별도 필드에 남긴다."""
+    frame_width, frame_height = frame_size
+    bbox_2d = detection["bbox_2d"]
+    object_type = detection.get("type", "unknown")
+    motion_score = float(detection.get("motion_score", 0.0))
+    position_3d = estimate_position_3d(bbox_2d, frame_width, frame_height, object_type)
+    estimated_x, estimated_y, _ = position_3d["estimate"]
+
+    return {
+        "track_id": detection.get("track_id"),
+        "type": object_type,
+        "subtype": detection.get("subtype"),
+        "bbox_2d": bbox_2d,
+        "confidence": detection.get("confidence", 0.0),
+        "detection_confidence": detection.get("confidence", 0.0),
+        "motion_score": round(motion_score, 4),
+        "detection_sources": detection.get("detection_sources", ["unknown"]),
+        "detection_reason": detection.get("detection_reason", "검출 근거가 기록되지 않았습니다."),
+        "certainty_level": "confirmed_object",
+        "position_3d": position_3d,
+        "motion_vector_3d": {
+            "vx": 0.0,
+            "vy": 0.0,
+            "vz": 0.0,
+            "confidence": round(min(motion_score, 1.0), 4),
+        },
+        "state": {
+            "distance_zone": classify_distance_zone(float(estimated_y)),
+            "lane_position": classify_lane_position(float(estimated_x)),
+            "motion_state": "moving_candidate" if motion_score >= 0.08 else "unknown",
+        },
+    }
+
+
 def build_scene_vector(
     frame_index: int,
     timestamp: float,
     detections: list[dict[str, Any]],
     frame_size: tuple[int, int],
+    raw_evidence: list[dict[str, Any]] | None = None,
+    object_candidates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """검출 결과를 Scene Vector JSON 구조로 변환한다."""
-    frame_width, frame_height = frame_size
-    objects = []
-
-    for detection in detections:
-        bbox_2d = detection["bbox_2d"]
-        object_type = detection.get("type", "unknown")
-        motion_score = float(detection.get("motion_score", 0.0))
-        position_3d = estimate_position_3d(bbox_2d, frame_width, frame_height, object_type)
-        estimated_x, estimated_y, _ = position_3d["estimate"]
-
-        objects.append(
-            {
-                "track_id": detection.get("track_id"),
-                "type": object_type,
-                "subtype": detection.get("subtype"),
-                "bbox_2d": bbox_2d,
-                "confidence": detection.get("confidence", 0.0),
-                "motion_score": round(motion_score, 4),
-                "detection_sources": detection.get("detection_sources", ["unknown"]),
-                "detection_reason": detection.get("detection_reason", "검출 근거가 기록되지 않았습니다."),
-                "is_candidate": detection.get("is_candidate", False),
-                "position_3d": position_3d,
-                "motion_vector_3d": {
-                    "vx": 0.0,
-                    "vy": 0.0,
-                    "vz": 0.0,
-                    "confidence": round(min(motion_score, 1.0), 4),
-                },
-                "state": {
-                    "distance_zone": classify_distance_zone(float(estimated_y)),
-                    "lane_position": classify_lane_position(float(estimated_x)),
-                    "motion_state": "moving_candidate" if motion_score >= 0.08 else "unknown",
-                },
-            }
-        )
+    """Raw Evidence, Object Candidate, Confirmed Object를 분리한 Scene Vector를 만든다."""
+    objects = [build_confirmed_object(detection, frame_size) for detection in detections]
 
     return {
         "scene_id": f"clip_001_frame_{frame_index:04d}",
@@ -81,6 +87,8 @@ def build_scene_vector(
             "heading": [0.0, 1.0, 0.0],
             "speed": None,
         },
+        "raw_evidence": raw_evidence or [],
+        "object_candidates": object_candidates or [],
         "objects": objects,
         "events": [],
     }

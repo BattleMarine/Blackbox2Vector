@@ -23,7 +23,15 @@ TOP_VIEW_SUBTYPE_SIZES = {
 
 
 def get_detection_color_bgr(detection: dict[str, Any]) -> tuple[int, int, int]:
-    """검출 출처별로 색을 분리해 YOLO, 전조등, 움직임 후보를 화면에서 구분한다."""
+    """시각화 색상은 검출 출처보다 확정 단계를 우선해 사용자가 오해하지 않게 한다."""
+    layer = detection.get("visual_layer")
+    if layer == "confirmed_object":
+        return (0, 255, 0)
+    if layer == "object_candidate":
+        return (0, 215, 255)
+    if layer == "raw_evidence":
+        return (255, 0, 255)
+
     sources = detection.get("detection_sources", [])
     if "headlight_blob" in sources:
         return (0, 215, 255)
@@ -33,7 +41,6 @@ def get_detection_color_bgr(detection: dict[str, Any]) -> tuple[int, int, int]:
 
 
 def get_top_view_color(obj: dict[str, Any]) -> str:
-    """탑뷰에서도 검출 출처를 유지해 후보의 성격을 잃지 않게 한다."""
     sources = obj.get("detection_sources", [])
     if "headlight_blob" in sources:
         return "tab:orange"
@@ -43,7 +50,7 @@ def get_top_view_color(obj: dict[str, Any]) -> str:
 
 
 def draw_detection_overlay(frame: Any, detections: list[dict[str, Any]]) -> Any:
-    """프레임 위에 bbox와 객체 정보를 그린다."""
+    """프레임 위에 확정 객체, 후보, 원시 관측값을 서로 다른 레이어로 표시한다."""
     if frame is None:
         raise ValueError("시각화할 프레임이 없습니다.")
 
@@ -51,18 +58,20 @@ def draw_detection_overlay(frame: Any, detections: list[dict[str, Any]]) -> Any:
     for detection in detections:
         x, y, width, height = [int(value) for value in detection["bbox_2d"]]
         color = get_detection_color_bgr(detection)
+        layer = detection.get("visual_layer", "detection")
         subtype = detection.get("subtype")
         type_label = detection.get("type", "unknown")
         label_type = f"{type_label}/{subtype}" if subtype else type_label
-        label = f"{label_type} {detection.get('confidence', 0.0):.2f}"
+        label = f"{layer}: {label_type} {detection.get('confidence', 0.0):.2f}"
+        thickness = 2 if layer == "confirmed_object" else 1
 
-        cv2.rectangle(overlay, (x, y), (x + width, y + height), color, 2)
+        cv2.rectangle(overlay, (x, y), (x + width, y + height), color, thickness)
         cv2.putText(
             overlay,
             label,
             (x, max(y - 8, 0)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
+            0.5,
             color,
             2,
             cv2.LINE_AA,
@@ -90,9 +99,9 @@ def estimate_top_view_box_size(obj: dict[str, Any]) -> tuple[float, float]:
 
 
 def draw_top_view(scene_vector: dict[str, Any]):
-    """자차와 객체의 추정 위치를 2.5D 탑뷰로 표시한다."""
+    """탑뷰는 최종 확정 객체만 표시해 후보와 raw evidence가 3D 객체처럼 보이지 않게 한다."""
     figure, axis = plt.subplots(figsize=(6, 6))
-    axis.set_title("2.5D Top View")
+    axis.set_title("2.5D Top View - Confirmed Objects")
     axis.set_xlabel("x: right (meter estimated)")
     axis.set_ylabel("y: forward (meter estimated)")
 
@@ -104,8 +113,6 @@ def draw_top_view(scene_vector: dict[str, Any]):
         x, y, _ = position
         color = get_top_view_color(obj)
         box_width, box_length = estimate_top_view_box_size(obj)
-        alpha = 0.35 if obj.get("is_candidate") else 0.55
-        line_style = "--" if obj.get("is_candidate") else "-"
         box = Rectangle(
             (x - box_width / 2, y - box_length / 2),
             box_width,
@@ -113,8 +120,7 @@ def draw_top_view(scene_vector: dict[str, Any]):
             linewidth=1.8,
             edgecolor=color,
             facecolor=color,
-            alpha=alpha,
-            linestyle=line_style,
+            alpha=0.55,
         )
         axis.add_patch(box)
         axis.text(x, y + box_length / 2 + 0.8, f"{obj['type']} #{obj['track_id']}", ha="center", color=color)

@@ -1,5 +1,28 @@
 # CODE_INDEX.md
 
+## v1.4.4 추가 색인
+
+### src/evidence_pipeline.py
+
+| 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
+|---|---|---|---|---|---|
+| `is_in_analysis_roi` | 함수 | `bbox_2d`, `frame_size` | bool | 화면 상단 광원과 하단 보닛/자막 영역을 약하게 제외 | 초기 ROI 휴리스틱 |
+| `build_raw_evidence` | 함수 | evidence id, type, detection, reason | dict | 객체로 확정하지 않는 원시 관측값 생성 | 밝은 영역, 움직임 영역 |
+| `build_object_candidate` | 함수 | candidate id, type, detection, evidence ids, reason | dict | 확정 전 객체 후보 생성 | YOLO 저신뢰, 전조등 쌍 |
+| `is_confirmable_model_detection` | 함수 | detection, frame_size | bool | YOLO 결과가 최종 객체로 승격 가능한지 판단 | confidence와 ROI 기준 |
+| `split_detections_by_certainty` | 함수 | model, light, motion detections, frame_size | raw_evidence, object_candidates, confirmed_objects, diagnostics | 검출 결과를 세 단계로 분리 | v1.4.4 핵심 |
+| `build_overlay_items` | 함수 | scene_vector | overlay item 목록 | 세 레이어를 한 화면에 표시할 수 있게 변환 | 시각화용 |
+
+### 변경된 핵심 함수
+
+| 이름 | 변경 내용 |
+|---|---|
+| `app.analyze_sample_frames` | model/light/motion 결과를 `split_detections_by_certainty`로 분리 |
+| `src.scene_vector.build_scene_vector` | `raw_evidence`, `object_candidates`, `objects`를 함께 출력 |
+| `src.visualizer.draw_detection_overlay` | confirmed object, object candidate, raw evidence를 다른 색상 레이어로 표시 |
+| `src.visualizer.draw_top_view` | 확정 `objects`만 2.5D 탑뷰에 표시 |
+| `src.summarizer.summarize_scene` | 확정 객체 수와 후보/evidence 수를 분리 요약 |
+
 ## app.py
 
 | 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |

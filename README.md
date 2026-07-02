@@ -1,5 +1,25 @@
 # BlackBox2Vector
 
+## v1.4.4 재설계 요약
+
+v1.4.4는 YOLO 기반 파이프라인을 더 보수적으로 다듬은 버전입니다.
+
+핵심 변경점은 모든 검출 결과를 곧바로 최종 객체로 저장하지 않고 다음 세 단계로 분리하는 것입니다.
+
+```text
+Raw Evidence
+  -> Object Candidate
+  -> Confirmed Object
+```
+
+- `raw_evidence`: 밝은 점, 전조등 가능 영역, 움직임 영역처럼 객체라고 확정할 수 없는 원시 관측값
+- `object_candidates`: YOLO 저신뢰 결과나 전조등 쌍처럼 객체 가능성이 있으나 아직 확정할 수 없는 후보
+- `objects`: YOLO 신뢰도와 약한 ROI 기준을 통과한 확정 객체
+
+v1.4.4부터 `unknown`, `motion_region`, `bright_region`은 최종 `objects` 목록에 직접 들어가지 않습니다. 이들은 `raw_evidence` 또는 `object_candidates`에 남겨 false positive가 Scene Vector의 최종 객체 목록을 오염시키지 않도록 합니다.
+
+새로 추가된 주요 모듈은 `src/evidence_pipeline.py`입니다.
+
 BlackBox2Vector는 2D 블랙박스 영상을 입력받아 객체, 차선, 도로 기준선, 움직임 정보를 추출하고, 이를 자차 기준 3D Scene Vector JSON 데이터로 변환하기 위한 데모 프로젝트입니다.
 
 데모 v1.4.3은 정밀한 3D 복원 시스템이 아닙니다. 업로드한 동영상에서 샘플 프레임 시퀀스를 추출하고, 더미 detector 또는 Ultralytics YOLO 데모 백엔드 결과에 야간 전조등/고휘도 후보와 프레임 차분 기반 움직임 후보를 더해 객체의 3D 위치 벡터, 움직임 근거, 신뢰도, 추정 범위를 JSON으로 저장하는 초기 파이프라인을 검증합니다.

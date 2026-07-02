@@ -1,5 +1,34 @@
 # PROJECT_MAP.md
 
+## v1.4.4 구조 변경
+
+v1.4.4에서는 검출 결과를 다음 세 단계로 분리합니다.
+
+```text
+Raw Evidence
+  -> Object Candidate
+  -> Confirmed Object
+```
+
+새 파일:
+
+| 파일 | 역할 |
+|---|---|
+| `src/evidence_pipeline.py` | YOLO, 전조등 후보, 움직임 후보를 raw evidence, object candidate, confirmed object로 분리 |
+
+v1.4.4 데이터 흐름:
+
+```text
+샘플 프레임
+  -> YOLO 또는 더미 detector 실행
+  -> 밝은 영역 evidence 수집
+  -> 움직임 evidence 수집
+  -> evidence_pipeline에서 확정도 분리
+  -> raw_evidence / object_candidates / objects를 포함한 Scene Vector 생성
+  -> 오버레이에서는 세 레이어를 색으로 구분
+  -> 2.5D 탑뷰에는 확정 objects만 표시
+```
+
 ## 전체 폴더 구조
 
 ```text
