@@ -1,5 +1,16 @@
 # AGENTS.md
 
+## v1.5 YOLO 피드백 학습 원칙
+
+라벨링 피드백은 `tools/export_yolo_dataset.py`로 YOLO 데이터셋으로 변환합니다.
+
+- `TP`와 `FP`만 YOLO positive label로 사용합니다.
+- `TN`과 `FN`은 객체 라벨에 넣지 않습니다.
+- 기본 설정에서는 `TN`/`FN`만 있는 프레임도 hard negative 이미지로 내보낼 수 있습니다.
+- 피드백이 참조하는 프레임이 `data/frames`에 없으면 `data/input`의 원본 영상에서 복구를 시도합니다.
+- 학습은 `tools/train_yolo_from_feedback.py`로 실행합니다.
+- 생성된 `data/yolo_dataset/`와 `data/output/yolo_runs/`는 로컬 산출물이며 Git에 커밋하지 않습니다.
+
 ## v1.5 라벨링 관리자 원칙
 
 v1.5 이후 라벨링 관리자 화면은 학습 데이터 생성을 돕기 위한 내부 도구입니다.
@@ -133,11 +144,17 @@ blackbox2vector/
 ├─ data/
 │  ├─ input/
 │  ├─ frames/
-│  └─ output/
+│  ├─ output/
+│  └─ yolo_dataset/
+├─ tools/
+│  ├─ __init__.py
+│  ├─ export_yolo_dataset.py
+│  └─ train_yolo_from_feedback.py
 ├─ src/
 │  ├─ __init__.py
 │  ├─ video_loader.py
 │  ├─ detector.py
+│  ├─ evidence_pipeline.py
 │  ├─ light_candidate_detector.py
 │  ├─ motion_candidate_detector.py
 │  ├─ position_estimator.py
@@ -159,12 +176,15 @@ blackbox2vector/
 | app.py | Streamlit 데모 앱 진입점 |
 | src/video_loader.py | 영상 저장, 메타데이터 확인, 프레임 추출 |
 | src/detector.py | 객체 검출 백엔드, 더미와 YOLO 검출 지원 |
+| src/evidence_pipeline.py | raw evidence, object candidate, confirmed object 분리 |
 | src/light_candidate_detector.py | 야간 전조등/고휘도 후보 검출과 병합 |
 | src/motion_candidate_detector.py | 프레임 차분 기반 움직임 후보 검출과 기존 후보 보강 |
 | src/position_estimator.py | 2D bbox 기반 3D 위치 추정 |
 | src/scene_vector.py | Scene Vector JSON 생성 |
 | src/visualizer.py | 검출 결과 및 2.5D/3D 시각화 |
 | src/summarizer.py | 규칙 기반 장면 요약 생성 |
+| tools/export_yolo_dataset.py | 라벨링 피드백을 YOLO 데이터셋으로 변환 |
+| tools/train_yolo_from_feedback.py | 피드백 데이터셋 생성 후 YOLO fine-tuning 실행 |
 
 ## Scene Vector JSON 규칙
 

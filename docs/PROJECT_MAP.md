@@ -1,5 +1,18 @@
 # PROJECT_MAP.md
 
+## v1.5 YOLO 피드백 학습 흐름
+
+```text
+data/output/label_feedback.jsonl
+  -> tools/export_yolo_dataset.py
+  -> 누락 프레임이 있으면 data/input 원본 영상에서 복구
+  -> data/yolo_dataset/blackbox_feedback_v1 생성
+  -> tools/train_yolo_from_feedback.py
+  -> data/output/yolo_runs에 학습 결과 저장
+```
+
+`TP`와 `FP`는 YOLO positive label로 변환합니다. `TN`과 `FN`은 객체 라벨에 넣지 않으며, hard negative 이미지로 활용할 수 있습니다.
+
 ## v1.5.1 프레임 추출 흐름
 
 ```text
@@ -67,7 +80,12 @@ blackbox2vector/
 ├─ data/
 │  ├─ input/
 │  ├─ frames/
-│  └─ output/
+│  ├─ output/
+│  └─ yolo_dataset/
+├─ tools/
+│  ├─ __init__.py
+│  ├─ export_yolo_dataset.py
+│  └─ train_yolo_from_feedback.py
 ├─ src/
 │  ├─ __init__.py
 │  ├─ video_loader.py

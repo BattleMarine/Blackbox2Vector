@@ -1,5 +1,25 @@
 ﻿# CODE_INDEX.md
 
+## v1.5 YOLO 피드백 학습 도구 색인
+
+### tools/export_yolo_dataset.py
+
+| 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
+|---|---|---|---|---|---|
+| `CLASS_NAMES` | 상수 | 없음 | list | YOLO 학습 class 순서 정의 | car, truck, bus, motorcycle, bicycle, person |
+| `load_feedback_records` | 함수 | feedback_path | record 목록 | JSONL 피드백 읽기 | 깨진 JSON은 오류 처리 |
+| `parse_frame_name` | 함수 | frame_path | video stem, frame index | 프레임 파일명에서 원본 영상명과 프레임 번호 추출 | 누락 프레임 복구용 |
+| `find_source_video` | 함수 | video_stem, input_dir | 영상 경로 또는 null | 원본 영상 파일 찾기 | MP4/AVI/MOV/MKV |
+| `recover_frame_from_video` | 함수 | video_path, frame_index, target_path | bool | 원본 영상에서 누락 프레임 복구 | OpenCV 사용 |
+| `normalize_bbox` | 함수 | bbox, image width, image height | YOLO bbox 또는 null | 픽셀 bbox를 YOLO 정규화 좌표로 변환 | 이미지 경계 clipping |
+| `export_yolo_dataset` | 함수 | feedback, output, input_dir, val_ratio | summary dict | 피드백을 YOLO 데이터셋으로 변환 | `data.yaml` 생성 |
+
+### tools/train_yolo_from_feedback.py
+
+| 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
+|---|---|---|---|---|---|
+| `main` | 함수 | CLI args | 없음 | 데이터셋 export 후 YOLO fine-tuning 실행 | `--export-only` 지원 |
+
 ## v1.5 라벨링 관리자 추가 색인
 
 | 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |

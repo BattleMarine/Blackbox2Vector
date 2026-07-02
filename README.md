@@ -1,5 +1,35 @@
 # BlackBox2Vector
 
+## v1.5 YOLO 피드백 학습
+
+라벨링 관리자에서 저장한 `data/output/label_feedback.jsonl`은 YOLO 학습 데이터셋으로 변환할 수 있습니다.
+
+```bash
+python tools/export_yolo_dataset.py
+```
+
+위 명령은 다음 구조를 생성합니다.
+
+```text
+data/yolo_dataset/blackbox_feedback_v1/
+├─ images/
+│  ├─ train/
+│  └─ val/
+├─ labels/
+│  ├─ train/
+│  └─ val/
+├─ data.yaml
+└─ export_summary.json
+```
+
+바로 YOLO fine-tuning까지 실행하려면 다음 명령을 사용합니다.
+
+```bash
+python tools/train_yolo_from_feedback.py --model yolov8n.pt --epochs 30 --imgsz 640 --batch 8
+```
+
+`TP`와 `FP`는 positive label로 변환합니다. `TN`과 `FN`은 객체 라벨에는 넣지 않으며, 기본 설정에서는 hard negative 이미지로 빈 라벨 파일을 생성할 수 있습니다. 피드백이 참조하는 프레임 이미지가 `data/frames`에 없으면 `data/input`의 원본 영상에서 프레임 번호를 기준으로 복구를 시도합니다.
+
 ## v1.5.1 프레임 추출 정책
 
 업로드한 영상은 길이에 관계없이 전체 구간에서 매초 1개의 샘플 프레임을 추출합니다.
@@ -181,11 +211,17 @@ blackbox2vector/
 ├─ data/
 │  ├─ input/
 │  ├─ frames/
-│  └─ output/
+│  ├─ output/
+│  └─ yolo_dataset/
+├─ tools/
+│  ├─ __init__.py
+│  ├─ export_yolo_dataset.py
+│  └─ train_yolo_from_feedback.py
 ├─ src/
 │  ├─ __init__.py
 │  ├─ video_loader.py
 │  ├─ detector.py
+│  ├─ evidence_pipeline.py
 │  ├─ light_candidate_detector.py
 │  ├─ motion_candidate_detector.py
 │  ├─ position_estimator.py

@@ -26,9 +26,12 @@ secrets.toml
 data/input/*
 data/frames/*
 data/output/*
+data/yolo_dataset/*
 !data/input/.gitkeep
 !data/frames/.gitkeep
 !data/output/.gitkeep
+!data/yolo_dataset/.gitkeep
+runs/
 
 # 로컬 모델 가중치
 *.pt
