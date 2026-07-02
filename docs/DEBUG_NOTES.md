@@ -60,6 +60,30 @@ Streamlit hot reload 중 `src.detector` 모듈 캐시에 v1.1의 이전 `ObjectD
 
 ### 문제
 
+라벨링 관리자 새 박스 평가 캔버스에서 간헐적으로 배경 프레임이 보이지 않고 흰 화면만 표시된다.
+
+### 증상
+
+새 박스 드래그 캔버스가 표시되지만, 분석 프레임 이미지가 배경으로 렌더링되지 않는다. 같은 프레임 번호를 다시 분석하거나 다른 영상에서 같은 프레임 번호를 사용할 때 재현될 수 있다.
+
+### 원인
+
+`streamlit-drawable-canvas` 컴포넌트 key가 `drag_box_canvas_{selected_index}`처럼 프레임 번호만 사용했다. 같은 key가 재사용되면 브라우저 쪽 캔버스 상태가 남아 새 `backgroundImageURL`을 안정적으로 다시 로드하지 못할 수 있다.
+
+### 해결
+
+캔버스 key에 프레임 파일명과 표시 이미지 해시를 포함하는 `build_canvas_key`를 추가했다. 기존 박스 클릭 캔버스와 새 박스 드래그 캔버스 모두 이미지가 바뀌면 컴포넌트가 새로 mount되도록 했다.
+
+추가 확인 결과 두 개의 `streamlit-drawable-canvas` 배경 이미지 캔버스를 같은 화면에 동시에 mount할 때도 둘 중 하나가 흰 배경으로 남을 수 있었다. 라벨링 관리자에 평가 작업 선택 UI를 추가해 기존 박스 평가와 새 박스 평가 중 하나의 캔버스만 렌더링하도록 변경했다.
+
+### 관련 파일
+
+- `app.py`
+- `docs/CODE_INDEX.md`
+- `docs/DEBUG_NOTES.md`
+
+### 문제
+
 YOLO 백엔드 선택 시 `ultralytics`가 필요하다는 오류가 계속 발생했다.
 
 ### 증상

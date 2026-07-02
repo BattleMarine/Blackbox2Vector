@@ -7,13 +7,14 @@
 | `append_jsonl` | 함수 | record, output_path | 없음 | 관리자 피드백을 JSONL로 누적 저장 | `label_feedback.jsonl` |
 | `build_video_analysis_result` | 함수 | 업로드 파일과 detector 설정 | 분석 result dict | 분석 데모와 라벨링 관리자가 같은 분석 초안을 공유 | v1.5 |
 | `build_label_record` | 함수 | frame, feedback_type, bbox, tag, note | label record dict | TP/TN/FP/FN 피드백 저장 형식 생성 | `feedback_meaning` 포함 |
+| `build_canvas_key` | 함수 | prefix, frame index, frame path, image | canvas key 문자열 | 프레임 이미지가 바뀌면 캔버스를 새로 mount하도록 key 생성 | 흰 배경 방지 |
 | `save_feedback_record` | 함수 | record, success_message | 없음 | 피드백 저장과 성공 메시지 표시를 공통 처리 | v1.5 |
 | `render_existing_box_feedback_panel` | 함수 | frame index, frame path, selected item | 없음 | 기존 박스 TP/TN 평가 패널 표시 | 캔버스 오른쪽 패널 |
 | `render_click_feedback` | 함수 | frame index, frame path, overlay items | 없음 | 기존 분석 박스 클릭 캔버스와 피드백 패널 표시 | TP/TN 저장 |
 | `get_last_canvas_rect` | 함수 | canvas result, scale | bbox 또는 null | 드래그한 마지막 사각형을 원본 프레임 좌표로 변환 | v1.5 |
 | `render_new_box_feedback_panel` | 함수 | frame index, frame path, bbox | 없음 | 새 박스 FP/FN 평가 패널 표시 | 캔버스 오른쪽 패널 |
 | `render_drag_feedback` | 함수 | frame index, frame path, frame image | 없음 | 새 박스 드래그 캔버스와 피드백 패널 표시 | FP/FN 저장 |
-| `render_labeling_admin` | 함수 | 분석 result dict | 없음 | 라벨링 관리자 전체 화면 표시 | v1.5 |
+| `render_labeling_admin` | 함수 | 분석 result dict | 없음 | 라벨링 관리자 전체 화면 표시 | 평가 모드별로 캔버스 1개만 mount |
 | `render_labeling_page` | 함수 | uploaded_file, detector_settings | 없음 | 라벨링용 분석 실행과 관리자 화면 연결 | v1.5 |
 ## v1.4.4 추가 색인
 

@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import sys
@@ -327,6 +328,12 @@ def get_display_image(image_rgb, max_width: int = 1100):
     return cv2.resize(image_rgb, (display_width, display_height)), scale, display_width, display_height
 
 
+def build_canvas_key(prefix: str, selected_index: int, frame_path: Path, image_rgb) -> str:
+    """프레임이 바뀌면 캔버스 컴포넌트도 새로 mount되도록 안정적인 key를 만듭니다."""
+    image_hash = hashlib.md5(image_rgb.tobytes()).hexdigest()[:12]
+    return f"{prefix}_{selected_index}_{frame_path.stem}_{image_hash}"
+
+
 def get_last_canvas_point(canvas_result, scale: float) -> tuple[float, float] | None:
     objects = canvas_result.json_data.get("objects", []) if canvas_result and canvas_result.json_data else []
     if not objects:
@@ -414,7 +421,7 @@ def render_click_feedback(selected_index: int, frame_path: Path, overlay_items: 
             height=display_height,
             width=display_width,
             drawing_mode="point",
-            key=f"select_box_canvas_{selected_index}",
+            key=build_canvas_key("select_box_canvas", selected_index, frame_path, display_image),
         )
     selected_item = find_item_at_point(overlay_items, get_last_canvas_point(click_canvas, scale))
     with panel_col:
@@ -488,7 +495,7 @@ def render_drag_feedback(selected_index: int, frame_path: Path, overlay_rgb) -> 
             height=display_height,
             width=display_width,
             drawing_mode="rect",
-            key=f"drag_box_canvas_{selected_index}",
+            key=build_canvas_key("drag_box_canvas", selected_index, frame_path, display_image),
         )
     with panel_col:
         render_new_box_feedback_panel(selected_index, frame_path, get_last_canvas_rect(canvas_result, scale))
@@ -511,8 +518,17 @@ def render_labeling_admin(result: dict[str, Any]) -> None:
     with cols[1]:
         st.image(overlay_rgb, caption="분석 박스")
 
-    render_click_feedback(selected_index, frame_path, overlay_items)
-    render_drag_feedback(selected_index, frame_path, overlay_rgb)
+    feedback_mode = st.radio(
+        "평가 작업",
+        ["기존 박스 평가", "새 박스 평가"],
+        horizontal=True,
+        key=f"feedback_mode_{selected_index}_{frame_path.stem}",
+        help="캔버스 배경 이미지 로딩 충돌을 줄이기 위해 한 번에 하나의 평가 캔버스만 표시합니다.",
+    )
+    if feedback_mode == "기존 박스 평가":
+        render_click_feedback(selected_index, frame_path, overlay_items)
+    else:
+        render_drag_feedback(selected_index, frame_path, overlay_rgb)
 
     if LABEL_FEEDBACK_PATH.exists():
         st.download_button(
