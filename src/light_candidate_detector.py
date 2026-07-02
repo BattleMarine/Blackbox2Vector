@@ -4,6 +4,23 @@ import cv2
 import numpy as np
 
 
+def build_rejected_light(reason: str, bbox_2d: list[float] | None = None) -> dict[str, Any]:
+    """오탐 튜닝을 위해 Scene Vector에 넣지 않은 광원 후보의 제외 이유를 남긴다."""
+    return {
+        "reason": reason,
+        "bbox_2d": [round(value, 2) for value in bbox_2d] if bbox_2d else None,
+    }
+
+
+def summarize_rejections(rejected_lights: list[dict[str, Any]]) -> dict[str, int]:
+    """프레임별 제외 이유를 앱에서 빠르게 검토할 수 있도록 집계한다."""
+    summary: dict[str, int] = {}
+    for rejected_light in rejected_lights:
+        reason = rejected_light["reason"]
+        summary[reason] = summary.get(reason, 0) + 1
+    return summary
+
+
 def calculate_iou(first_bbox: list[float], second_bbox: list[float]) -> float:
     """후보 병합 시 같은 영역을 중복 객체로 남기지 않기 위해 IoU를 계산한다."""
     first_x, first_y, first_w, first_h = [float(value) for value in first_bbox]
@@ -28,6 +45,30 @@ def calculate_iou(first_bbox: list[float], second_bbox: list[float]) -> float:
     return overlap_area / max(union_area, 1.0)
 
 
+def get_artifact_zone_reason(blob: dict[str, Any], frame_size: tuple[int, int]) -> str | None:
+    """차량 후보가 되기 어려운 화면 영역과 반사 형태를 먼저 제거한다."""
+    frame_width, frame_height = frame_size
+    x, y, width, height = blob["bbox_2d"]
+    center_x, center_y = blob["center"]
+    aspect_ratio = blob.get("aspect_ratio", width / max(height, 1))
+    bbox_area_ratio = blob.get("bbox_area_ratio", (width * height) / max(frame_width * frame_height, 1))
+
+    if center_y > frame_height * 0.72:
+        return "보닛/대시보드 반사 영역"
+    if center_y < frame_height * 0.24:
+        return "상단 고정 광원 영역"
+    if (center_x < frame_width * 0.1 or center_x > frame_width * 0.9) and center_y < frame_height * 0.68:
+        return "측면 간판/건물 광원 영역"
+    if aspect_ratio > 2.5:
+        return "긴 수평 반사선"
+    if aspect_ratio < 0.28:
+        return "긴 수직 광원/기둥 반사"
+    if bbox_area_ratio > 0.018 and blob.get("fill_ratio", 0.0) < 0.42:
+        return "넓은 빛번짐"
+
+    return None
+
+
 def build_light_mask(frame: Any, brightness_threshold: int = 220) -> Any:
     """야간 전조등처럼 형상보다 밝기가 먼저 보이는 객체 후보를 분리한다."""
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -44,7 +85,10 @@ def build_light_mask(frame: Any, brightness_threshold: int = 220) -> Any:
     return mask
 
 
-def extract_light_blobs(frame: Any, brightness_threshold: int = 220) -> list[dict[str, Any]]:
+def extract_light_blobs_with_rejections(
+    frame: Any,
+    brightness_threshold: int = 220,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """고휘도 영역을 bbox 후보로 변환한다."""
     if frame is None:
         raise ValueError("전조등 후보 검출에 사용할 프레임이 없습니다.")
@@ -54,34 +98,43 @@ def extract_light_blobs(frame: Any, brightness_threshold: int = 220) -> list[dic
     mask = build_light_mask(frame, brightness_threshold)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     blobs: list[dict[str, Any]] = []
+    rejected_lights: list[dict[str, Any]] = []
 
     for contour in contours:
         area = float(cv2.contourArea(contour))
         if area < max(frame_area * 0.00003, 10.0):
+            rejected_lights.append(build_rejected_light("작은 물방울/노이즈"))
             continue
 
         x, y, width, height = cv2.boundingRect(contour)
+        bbox_2d = [float(x), float(y), float(width), float(height)]
         if width <= 3 or height <= 3:
+            rejected_lights.append(build_rejected_light("작은 물방울/노이즈", bbox_2d))
             continue
         if width > frame_width * 0.28 or height > frame_height * 0.22:
+            rejected_lights.append(build_rejected_light("과도하게 큰 광원/간판", bbox_2d))
             continue
 
         roi = mask[y : y + height, x : x + width]
         fill_ratio = float(cv2.countNonZero(roi)) / max(width * height, 1)
         if fill_ratio < 0.16:
+            rejected_lights.append(build_rejected_light("희미한 빛번짐", bbox_2d))
             continue
 
         aspect_ratio = width / max(height, 1)
         if aspect_ratio > 4.2 or aspect_ratio < 0.18:
+            rejected_lights.append(build_rejected_light("길게 늘어진 반사/잔상", bbox_2d))
             continue
 
         perimeter = max(float(cv2.arcLength(contour, True)), 1.0)
         circularity = 4.0 * np.pi * area / (perimeter * perimeter)
         if circularity < 0.08:
+            rejected_lights.append(build_rejected_light("불규칙한 물방울/번짐 형태", bbox_2d))
             continue
 
         bbox_area_ratio = (width * height) / max(frame_area, 1)
         if bbox_area_ratio > 0.025 and fill_ratio < 0.34:
+            rejected_lights.append(build_rejected_light("넓은 빛번짐", bbox_2d))
             continue
 
         center_x = x + width / 2
@@ -102,7 +155,13 @@ def extract_light_blobs(frame: Any, brightness_threshold: int = 220) -> list[dic
             }
         )
 
-    return sorted(blobs, key=lambda blob: (blob["bbox_2d"][1], blob["bbox_2d"][0]))
+    return sorted(blobs, key=lambda blob: (blob["bbox_2d"][1], blob["bbox_2d"][0])), rejected_lights
+
+
+def extract_light_blobs(frame: Any, brightness_threshold: int = 220) -> list[dict[str, Any]]:
+    """기존 호출부 호환을 위해 통과 blob만 반환한다."""
+    blobs, _ = extract_light_blobs_with_rejections(frame, brightness_threshold)
+    return blobs
 
 
 def is_headlight_pair(left_blob: dict[str, Any], right_blob: dict[str, Any], frame_width: int, frame_height: int) -> bool:
@@ -126,13 +185,17 @@ def is_headlight_pair(left_blob: dict[str, Any], right_blob: dict[str, Any], fra
 
     if average_y < frame_height * 0.22:
         return False
+    if average_y > frame_height * 0.72:
+        return False
     if vertical_gap > average_height * 0.9:
         return False
     if horizontal_gap < average_width * 1.8:
         return False
-    if horizontal_gap > frame_width * 0.28:
+    if horizontal_gap > frame_width * 0.16:
         return False
-    if pair_width > frame_width * 0.32:
+    if pair_width > frame_width * 0.14:
+        return False
+    if pair_width / average_height > 6.0:
         return False
     if height_ratio < 0.55 or width_ratio < 0.45:
         return False
@@ -185,6 +248,11 @@ def build_single_light_detection(blob: dict[str, Any], track_id: str) -> dict[st
 
 def should_keep_single_light_candidate(blob: dict[str, Any], frame_size: tuple[int, int]) -> bool:
     """단일 광원은 오탐이 많으므로 전조등 후보로 볼 만한 경우만 남긴다."""
+    return get_single_light_rejection_reason(blob, frame_size) is None
+
+
+def get_single_light_rejection_reason(blob: dict[str, Any], frame_size: tuple[int, int]) -> str | None:
+    """단일 광원을 Scene Vector 후보로 남기지 않을 이유를 판단한다."""
     frame_width, frame_height = frame_size
     x, y, width, height = blob["bbox_2d"]
     center_x, center_y = blob["center"]
@@ -193,20 +261,29 @@ def should_keep_single_light_candidate(blob: dict[str, Any], frame_size: tuple[i
     fill_ratio = blob.get("fill_ratio", 0.0)
     bbox_area_ratio = blob.get("bbox_area_ratio", (width * height) / max(frame_width * frame_height, 1))
 
-    if center_y < frame_height * 0.38:
-        return False
+    artifact_reason = get_artifact_zone_reason(blob, frame_size)
+    if artifact_reason:
+        return artifact_reason
+    if center_y < frame_height * 0.45:
+        return "상단 단일 광원"
     if center_x < frame_width * 0.05 or center_x > frame_width * 0.95:
-        return False
+        return "화면 가장자리 단일 광원"
     if aspect_ratio > 2.8 or aspect_ratio < 0.3:
-        return False
+        return "전조등으로 보기 어려운 종횡비"
     if circularity < 0.16:
-        return False
+        return "불규칙한 물방울/번짐 형태"
     if fill_ratio < 0.22:
-        return False
+        return "희미한 빛번짐"
     if bbox_area_ratio > 0.012:
-        return False
+        return "단일 후보로 보기엔 큰 광원"
+    if width > frame_width * 0.05 or height > frame_height * 0.08:
+        return "단일 후보로 보기엔 큰 광원"
+    if bbox_area_ratio < 0.00035:
+        return "작은 원거리 광원/물방울"
+    if float(blob.get("confidence", 0.0)) < 0.43:
+        return "낮은 단일 광원 신뢰도"
 
-    return True
+    return None
 
 
 def apply_temporal_boost(
@@ -255,19 +332,39 @@ def detect_light_candidates(
     brightness_threshold: int = 220,
 ) -> list[dict[str, Any]]:
     """YOLO가 놓치기 쉬운 야간 전조등/고휘도 객체 후보를 찾는다."""
+    candidates, _ = detect_light_candidates_with_diagnostics(frame, previous_candidates, brightness_threshold)
+    return candidates
+
+
+def detect_light_candidates_with_diagnostics(
+    frame: Any,
+    previous_candidates: list[dict[str, Any]] | None = None,
+    brightness_threshold: int = 220,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """전조등 후보와 제외된 광원/반사 이유를 함께 반환한다."""
     frame_height, frame_width = frame.shape[:2]
-    blobs = extract_light_blobs(frame, brightness_threshold)
+    frame_size = (frame_width, frame_height)
+    blobs, rejected_lights = extract_light_blobs_with_rejections(frame, brightness_threshold)
     used_indexes: set[int] = set()
+    rejected_indexes: set[int] = set()
     detections: list[dict[str, Any]] = []
 
     for first_index, first_blob in enumerate(blobs):
         if first_index in used_indexes:
+            continue
+        artifact_reason = get_artifact_zone_reason(first_blob, frame_size)
+        if artifact_reason:
+            rejected_lights.append(build_rejected_light(artifact_reason, first_blob["bbox_2d"]))
+            rejected_indexes.add(first_index)
             continue
 
         best_pair_index = None
         best_gap = float("inf")
         for second_index, second_blob in enumerate(blobs):
             if second_index <= first_index or second_index in used_indexes:
+                continue
+            second_artifact_reason = get_artifact_zone_reason(second_blob, frame_size)
+            if second_artifact_reason:
                 continue
             if is_headlight_pair(first_blob, second_blob, frame_width, frame_height):
                 gap = abs(second_blob["center"][0] - first_blob["center"][0])
@@ -287,13 +384,22 @@ def detect_light_candidates(
             )
 
     for blob_index, blob in enumerate(blobs):
-        if blob_index in used_indexes:
+        if blob_index in used_indexes or blob_index in rejected_indexes:
             continue
-        if not should_keep_single_light_candidate(blob, (frame_width, frame_height)):
+        rejection_reason = get_single_light_rejection_reason(blob, frame_size)
+        if rejection_reason is not None:
+            rejected_lights.append(build_rejected_light(rejection_reason, blob["bbox_2d"]))
+            rejected_indexes.add(blob_index)
             continue
         detections.append(build_single_light_detection(blob, track_id=f"light_{len(detections) + 1}"))
 
-    return apply_temporal_boost(detections, previous_candidates, (frame_width, frame_height))
+    boosted_detections = apply_temporal_boost(detections, previous_candidates, frame_size)
+    diagnostics = {
+        "rejected_count": len(rejected_lights),
+        "rejected_by_reason": summarize_rejections(rejected_lights),
+        "rejected_samples": rejected_lights[:20],
+    }
+    return boosted_detections, diagnostics
 
 
 def merge_detections(

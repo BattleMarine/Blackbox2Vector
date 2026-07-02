@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import streamlit as st
 
-from src.light_candidate_detector import detect_light_candidates, merge_detections
+from src.light_candidate_detector import detect_light_candidates_with_diagnostics, merge_detections
 from src.scene_vector import build_scene_vector, build_sample_scene_vector
 from src.summarizer import summarize_scene
 from src.video_loader import extract_sample_frames, get_video_metadata, save_uploaded_video
@@ -98,7 +98,7 @@ def show_detector_settings() -> tuple[str, str, float, bool, int]:
     else:
         st.sidebar.caption("현재 선택: Ultralytics YOLO 데모 백엔드")
     if use_light_candidates:
-        st.sidebar.caption("v1.4.1 보강: 엄격한 필터를 통과한 전조등/고휘도 blob만 후보로 보존합니다.")
+        st.sidebar.caption("v1.4.2 보강: 후보와 제외된 광원/반사를 분리해 검출 근거를 표시합니다.")
 
     return backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold
 
@@ -135,10 +135,11 @@ def analyze_sample_frames(
     frame_size: tuple[int, int],
     use_light_candidates: bool,
     light_brightness_threshold: int,
-) -> tuple[list[dict], list[list[dict]]]:
+) -> tuple[list[dict], list[list[dict]], list[dict]]:
     """추출된 모든 샘플 프레임에 detector를 적용해 프레임별 Scene Vector를 만든다."""
     scene_vectors: list[dict] = []
     detections_by_frame: list[list[dict]] = []
+    light_diagnostics_by_frame: list[dict] = []
     previous_light_candidates: list[dict] = []
     progress = st.progress(0, text="샘플 프레임 분석 준비 중")
 
@@ -146,8 +147,13 @@ def analyze_sample_frames(
         frame_bgr, _ = load_frame_rgb(frame_path)
         model_detections = detector.detect_objects(frame_bgr)
         light_candidates: list[dict] = []
+        light_diagnostics: dict = {
+            "rejected_count": 0,
+            "rejected_by_reason": {},
+            "rejected_samples": [],
+        }
         if use_light_candidates:
-            light_candidates = detect_light_candidates(
+            light_candidates, light_diagnostics = detect_light_candidates_with_diagnostics(
                 frame_bgr,
                 previous_candidates=previous_light_candidates,
                 brightness_threshold=light_brightness_threshold,
@@ -164,13 +170,14 @@ def analyze_sample_frames(
 
         scene_vectors.append(scene_vector)
         detections_by_frame.append(detections)
+        light_diagnostics_by_frame.append(light_diagnostics)
         progress.progress(
             frame_order / len(sample_frames),
             text=f"샘플 프레임 분석 중: {frame_order}/{len(sample_frames)}",
         )
 
     progress.empty()
-    return scene_vectors, detections_by_frame
+    return scene_vectors, detections_by_frame, light_diagnostics_by_frame
 
 
 def store_sample_result(scene_vector: dict) -> None:
@@ -187,6 +194,7 @@ def store_video_result(
     sample_frames: list[Path],
     scene_vectors: list[dict],
     detections_by_frame: list[list[dict]],
+    light_diagnostics_by_frame: list[dict],
     detector_backend: str,
 ) -> None:
     """프레임 시퀀스 분석 결과를 파일과 세션 상태에 저장한다."""
@@ -198,6 +206,7 @@ def store_video_result(
         "frame_paths": [str(frame_path) for frame_path in sample_frames],
         "scene_vectors": scene_vectors,
         "detections_by_frame": detections_by_frame,
+        "light_diagnostics_by_frame": light_diagnostics_by_frame,
         "detector_backend": detector_backend,
     }
 
@@ -231,6 +240,7 @@ def render_video_result(result: dict) -> None:
     frame_paths = [Path(path) for path in result["frame_paths"]]
     scene_vectors = result["scene_vectors"]
     detections_by_frame = result["detections_by_frame"]
+    light_diagnostics_by_frame = result.get("light_diagnostics_by_frame", [])
     detector_backend = result["detector_backend"]
 
     show_video_metadata(metadata)
@@ -248,6 +258,9 @@ def render_video_result(result: dict) -> None:
     selected_frame_path = frame_paths[selected_index]
     selected_scene_vector = scene_vectors[selected_index]
     selected_detections = detections_by_frame[selected_index]
+    selected_light_diagnostics = (
+        light_diagnostics_by_frame[selected_index] if selected_index < len(light_diagnostics_by_frame) else {}
+    )
 
     frame_bgr, frame_rgb = load_frame_rgb(selected_frame_path)
     overlay_bgr = draw_detection_overlay(frame_bgr, selected_detections)
@@ -264,6 +277,13 @@ def render_video_result(result: dict) -> None:
     st.write(summary)
     if light_candidate_count:
         st.info(f"전조등/고휘도 후보 {light_candidate_count}개를 Scene Vector에 보존했습니다.")
+    rejected_count = selected_light_diagnostics.get("rejected_count", 0)
+    if rejected_count:
+        reason_text = ", ".join(
+            f"{reason} {count}개"
+            for reason, count in selected_light_diagnostics.get("rejected_by_reason", {}).items()
+        )
+        st.caption(f"Scene Vector에서 제외한 광원/반사 {rejected_count}개: {reason_text}")
     if not selected_detections:
         st.warning("선택한 프레임에서 검출된 객체가 없습니다. objects는 빈 목록입니다.")
 
@@ -324,7 +344,7 @@ def main() -> None:
     st.subheader("2D 블랙박스 영상에서 Scene Vector JSON으로")
 
     st.write(
-        "데모 v1.4.1은 정밀한 3D 복원 시스템이 아니라, YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보까지 "
+        "데모 v1.4.2는 정밀한 3D 복원 시스템이 아니라, YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보까지 "
         "자차 기준 Scene Vector JSON 배열에 보존하는 구조 확인용 앱입니다."
     )
 
@@ -370,7 +390,7 @@ def main() -> None:
                     confidence_threshold=confidence_threshold,
                 )
                 frame_size = (int(metadata["width"]), int(metadata["height"]))
-                scene_vectors, detections_by_frame = analyze_sample_frames(
+                scene_vectors, detections_by_frame, light_diagnostics_by_frame = analyze_sample_frames(
                     sample_frames=sample_frames,
                     detector=detector,
                     frame_size=frame_size,
@@ -382,6 +402,7 @@ def main() -> None:
                     sample_frames=sample_frames,
                     scene_vectors=scene_vectors,
                     detections_by_frame=detections_by_frame,
+                    light_diagnostics_by_frame=light_diagnostics_by_frame,
                     detector_backend=detector_backend,
                 )
         except Exception as exc:

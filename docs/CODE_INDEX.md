@@ -11,10 +11,10 @@
 | `save_scene_vectors` | 함수 | `scene_vectors`, `output_path` | 저장된 `Path` | 프레임별 Scene Vector 배열 저장 | `scene_vectors.json` 저장 |
 | `load_frame_rgb` | 함수 | `frame_path` | BGR 프레임, RGB 프레임 | OpenCV 프레임을 앱 표시용으로 변환 | 읽기 실패 시 예외 |
 | `show_video_metadata` | 함수 | `metadata` | 없음 | 영상 메타데이터를 Streamlit metric으로 표시 | v1.1 UI |
-| `show_detector_settings` | 함수 | 없음 | backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold | detector와 전조등 후보 설정을 사이드바에서 입력 | v1.4.1 UI |
+| `show_detector_settings` | 함수 | 없음 | backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold | detector와 전조등 후보 설정을 사이드바에서 입력 | v1.4.2 UI |
 | `show_runtime_status` | 함수 | 없음 | 없음 | 앱이 사용하는 Python 경로와 YOLO 설치 상태 표시 | 환경 혼선 진단 |
 | `create_object_detector` | 함수 | `backend`, `model_path`, `confidence_threshold` | `ObjectDetector` 인스턴스 | Streamlit 모듈 캐시를 갱신한 뒤 detector 생성 | hot reload 안정화 |
-| `analyze_sample_frames` | 함수 | `sample_frames`, `detector`, `frame_size`, `use_light_candidates`, `light_brightness_threshold` | scene_vectors, detections_by_frame | 추출된 모든 샘플 프레임에 detector와 전조등 후보 검출 적용 | v1.4.1 시퀀스 분석 |
+| `analyze_sample_frames` | 함수 | `sample_frames`, `detector`, `frame_size`, `use_light_candidates`, `light_brightness_threshold` | scene_vectors, detections_by_frame, light_diagnostics_by_frame | 추출된 모든 샘플 프레임에 detector와 전조등 후보 검출 적용 | 제외 이유 진단 포함 |
 | `store_sample_result` | 함수 | `scene_vector` | 없음 | 업로드 없이 실행한 샘플 결과 저장 | 세션 상태 사용 |
 | `store_video_result` | 함수 | `metadata`, `sample_frames`, `scene_vectors`, `detections_by_frame`, `detector_backend` | 없음 | 영상 분석 결과를 파일과 세션 상태에 저장 | 단일/시퀀스 JSON 저장 |
 | `render_sample_result` | 함수 | `scene_vector` | 없음 | 샘플 Scene Vector 결과 표시 | 업로드 없는 실행 경로 |
@@ -46,14 +46,20 @@
 | 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
 |---|---|---|---|---|---|
 | `calculate_iou` | 함수 | 두 bbox | IoU 값 | 모델 detection과 전조등 후보의 중복 여부 계산 | 병합용 |
+| `build_rejected_light` | 함수 | reason, bbox | 제외 기록 dict | Scene Vector에 넣지 않은 광원 후보 기록 | v1.4.2 진단 |
+| `summarize_rejections` | 함수 | rejected_lights | reason별 count | 제외 이유 집계 | 앱 표시용 |
+| `get_artifact_zone_reason` | 함수 | blob, frame_size | reason 또는 None | 보닛, 상단 광원, 측면 간판, 긴 반사선 제외 판단 | v1.4.2 |
 | `build_light_mask` | 함수 | `frame`, `brightness_threshold` | mask | 흰색/노란색 고휘도 영역 분리 | OpenCV HSV 기반 |
 | `extract_light_blobs` | 함수 | `frame`, `brightness_threshold` | blob 목록 | 고휘도 영역을 bbox 후보로 변환 | 노이즈, 큰 번짐, 길게 늘어진 잔상 제거 |
+| `extract_light_blobs_with_rejections` | 함수 | `frame`, `brightness_threshold` | blob 목록, 제외 기록 목록 | 후보 blob과 제외된 광원 이유를 함께 반환 | v1.4.2 |
 | `is_headlight_pair` | 함수 | 두 blob, `frame_width`, `frame_height` | bool | 나란한 전조등 쌍 후보 판단 | 위치와 대칭성 휴리스틱 |
 | `build_pair_detection` | 함수 | 두 blob, `track_id` | detection dict | 전조등 쌍을 차량 후보로 변환 | `car/headlight_pair` |
 | `build_single_light_detection` | 함수 | blob, `track_id` | detection dict | 단일 고휘도 blob을 unknown 후보로 변환 | `unknown/possible_vehicle_headlight` |
 | `should_keep_single_light_candidate` | 함수 | blob, frame_size | bool | 단일 광원 후보를 엄격하게 필터링 | 가로등/물방울 잔상 오탐 완화 |
+| `get_single_light_rejection_reason` | 함수 | blob, frame_size | reason 또는 None | 단일 광원 후보 제외 이유 판단 | v1.4.2 |
 | `apply_temporal_boost` | 함수 | candidates, previous_candidates, frame_size | detection 목록 | 이전 샘플 프레임과 이어지는 후보 신뢰도 보강 | `temporal_motion` source 추가 |
-| `detect_light_candidates` | 함수 | `frame`, `previous_candidates`, `brightness_threshold` | detection 목록 | 야간 전조등/고휘도 객체 후보 검출 | v1.4.1 핵심 보강 |
+| `detect_light_candidates` | 함수 | `frame`, `previous_candidates`, `brightness_threshold` | detection 목록 | 야간 전조등/고휘도 객체 후보 검출 | 호환용 |
+| `detect_light_candidates_with_diagnostics` | 함수 | `frame`, `previous_candidates`, `brightness_threshold` | detection 목록, diagnostics | 후보와 제외 이유 집계를 함께 반환 | v1.4.2 핵심 보강 |
 | `merge_detections` | 함수 | model_detections, light_candidates, iou_threshold | detection 목록 | 모델 검출과 전조등 후보 병합 | 중복 bbox 보강 |
 
 ## src/position_estimator.py
