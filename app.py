@@ -98,7 +98,7 @@ def show_detector_settings() -> tuple[str, str, float, bool, int]:
     else:
         st.sidebar.caption("현재 선택: Ultralytics YOLO 데모 백엔드")
     if use_light_candidates:
-        st.sidebar.caption("v1.4 보강: 야간 전조등/고휘도 blob을 unknown 또는 차량 후보로 보존합니다.")
+        st.sidebar.caption("v1.4.1 보강: 엄격한 필터를 통과한 전조등/고휘도 blob만 후보로 보존합니다.")
 
     return backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold
 
@@ -324,7 +324,7 @@ def main() -> None:
     st.subheader("2D 블랙박스 영상에서 Scene Vector JSON으로")
 
     st.write(
-        "데모 v1.4는 정밀한 3D 복원 시스템이 아니라, YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보까지 "
+        "데모 v1.4.1은 정밀한 3D 복원 시스템이 아니라, YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보까지 "
         "자차 기준 Scene Vector JSON 배열에 보존하는 구조 확인용 앱입니다."
     )
 

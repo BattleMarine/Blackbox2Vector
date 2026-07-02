@@ -55,7 +55,7 @@ blackbox2vector/
 | `src/visualizer.py` | bbox 오버레이와 2.5D 탑뷰 시각화 |
 | `src/summarizer.py` | 규칙 기반 장면 요약 |
 
-## 데모 v1.4 데이터 흐름
+## 데모 v1.4.1 데이터 흐름
 
 ```text
 Streamlit 앱
@@ -67,6 +67,7 @@ Streamlit 앱
   -> 추출된 모든 샘플 프레임 로드
   -> 프레임별 더미 또는 YOLO detection 생성
   -> 프레임별 전조등/고휘도 blob 후보 생성
+  -> blob 형태, 크기, 화면 위치, 전조등 쌍 구조 기준으로 오탐 필터링
   -> 이전 샘플 프레임 후보와 이어지는 경우 temporal 후보 보강
   -> 모델 detection과 전조등 후보 병합
   -> 프레임별 bbox 오버레이 생성
@@ -75,8 +76,8 @@ Streamlit 앱
   -> data/output/scene_vector.json 저장
   -> data/output/scene_vectors.json 저장
   -> 슬라이더로 선택한 프레임의 장면 요약 생성
-  -> 슬라이더로 선택한 프레임의 원본, 오버레이, 2.5D 탑뷰 표시
+  -> 슬라이더로 선택한 프레임의 원본, 오버레이, 타입별 크기 2.5D 탑뷰 표시
   -> JSON 다운로드 제공
 ```
 
-현재 앱은 실제 업로드 영상을 저장하고 샘플 프레임을 추출합니다. 객체 검출은 더미 detector와 Ultralytics YOLO detector 중 선택할 수 있습니다. v1.4에서는 YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보를 별도 detection 후보로 보존하고, 추출된 샘플 프레임 전체를 분석한 뒤 슬라이더로 프레임별 결과를 넘겨볼 수 있습니다.
+현재 앱은 실제 업로드 영상을 저장하고 샘플 프레임을 추출합니다. 객체 검출은 더미 detector와 Ultralytics YOLO detector 중 선택할 수 있습니다. v1.4.1에서는 YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보를 별도 detection 후보로 보존하되, 가로등과 빛번짐 오탐을 줄이기 위해 후보 검증 기준을 더 엄격하게 적용합니다. 2.5D 탑뷰는 고정 마커 대신 객체 타입별 추정 물리 크기 박스로 표시합니다.

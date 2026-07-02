@@ -57,29 +57,47 @@ def extract_light_blobs(frame: Any, brightness_threshold: int = 220) -> list[dic
 
     for contour in contours:
         area = float(cv2.contourArea(contour))
-        if area < max(frame_area * 0.00002, 8.0):
+        if area < max(frame_area * 0.00003, 10.0):
             continue
 
         x, y, width, height = cv2.boundingRect(contour)
-        if width <= 2 or height <= 2:
+        if width <= 3 or height <= 3:
             continue
-        if width > frame_width * 0.45 or height > frame_height * 0.35:
+        if width > frame_width * 0.28 or height > frame_height * 0.22:
             continue
 
         roi = mask[y : y + height, x : x + width]
         fill_ratio = float(cv2.countNonZero(roi)) / max(width * height, 1)
-        if fill_ratio < 0.08:
+        if fill_ratio < 0.16:
+            continue
+
+        aspect_ratio = width / max(height, 1)
+        if aspect_ratio > 4.2 or aspect_ratio < 0.18:
+            continue
+
+        perimeter = max(float(cv2.arcLength(contour, True)), 1.0)
+        circularity = 4.0 * np.pi * area / (perimeter * perimeter)
+        if circularity < 0.08:
+            continue
+
+        bbox_area_ratio = (width * height) / max(frame_area, 1)
+        if bbox_area_ratio > 0.025 and fill_ratio < 0.34:
             continue
 
         center_x = x + width / 2
         center_y = y + height / 2
-        confidence = min(0.52, 0.24 + fill_ratio * 0.28 + min(area / max(frame_area * 0.004, 1.0), 1.0) * 0.12)
+        shape_score = min(circularity / 0.55, 1.0)
+        size_score = min(area / max(frame_area * 0.0035, 1.0), 1.0)
+        confidence = min(0.56, 0.2 + fill_ratio * 0.22 + shape_score * 0.08 + size_score * 0.1)
         blobs.append(
             {
                 "bbox_2d": [float(x), float(y), float(width), float(height)],
                 "center": [float(center_x), float(center_y)],
                 "area": area,
                 "fill_ratio": round(fill_ratio, 4),
+                "aspect_ratio": round(aspect_ratio, 4),
+                "circularity": round(circularity, 4),
+                "bbox_area_ratio": round(bbox_area_ratio, 6),
                 "confidence": round(confidence, 4),
             }
         )
@@ -87,7 +105,7 @@ def extract_light_blobs(frame: Any, brightness_threshold: int = 220) -> list[dic
     return sorted(blobs, key=lambda blob: (blob["bbox_2d"][1], blob["bbox_2d"][0]))
 
 
-def is_headlight_pair(left_blob: dict[str, Any], right_blob: dict[str, Any], frame_width: int) -> bool:
+def is_headlight_pair(left_blob: dict[str, Any], right_blob: dict[str, Any], frame_width: int, frame_height: int) -> bool:
     """나란한 두 고휘도 blob이 같은 차량의 전조등 쌍인지 휴리스틱으로 판단한다."""
     left_x, left_y, left_w, left_h = left_blob["bbox_2d"]
     right_x, right_y, right_w, right_h = right_blob["bbox_2d"]
@@ -103,14 +121,22 @@ def is_headlight_pair(left_blob: dict[str, Any], right_blob: dict[str, Any], fra
     vertical_gap = abs(right_center_y - left_center_y)
     height_ratio = min(left_h, right_h) / max(left_h, right_h, 1.0)
     width_ratio = min(left_w, right_w) / max(left_w, right_w, 1.0)
+    average_y = (left_center_y + right_center_y) / 2
+    pair_width = (right_x + right_w) - left_x
 
-    if vertical_gap > average_height * 1.4:
+    if average_y < frame_height * 0.22:
         return False
-    if horizontal_gap < average_width * 1.4:
+    if vertical_gap > average_height * 0.9:
         return False
-    if horizontal_gap > frame_width * 0.35:
+    if horizontal_gap < average_width * 1.8:
         return False
-    if height_ratio < 0.35 or width_ratio < 0.25:
+    if horizontal_gap > frame_width * 0.28:
+        return False
+    if pair_width > frame_width * 0.32:
+        return False
+    if height_ratio < 0.55 or width_ratio < 0.45:
+        return False
+    if min(left_blob.get("circularity", 0.0), right_blob.get("circularity", 0.0)) < 0.12:
         return False
 
     return True
@@ -152,9 +178,35 @@ def build_single_light_detection(blob: dict[str, Any], track_id: str) -> dict[st
         "bbox_2d": [round(x, 2), round(y, 2), round(width, 2), round(height, 2)],
         "confidence": blob["confidence"],
         "detection_sources": ["headlight_blob"],
-        "detection_reason": "야간 프레임에서 차량 형상 대신 고휘도 전조등 후보가 감지되었습니다.",
+        "detection_reason": "엄격한 형태 기준을 통과한 단일 고휘도 전조등 후보가 감지되었습니다.",
         "is_candidate": True,
     }
+
+
+def should_keep_single_light_candidate(blob: dict[str, Any], frame_size: tuple[int, int]) -> bool:
+    """단일 광원은 오탐이 많으므로 전조등 후보로 볼 만한 경우만 남긴다."""
+    frame_width, frame_height = frame_size
+    x, y, width, height = blob["bbox_2d"]
+    center_x, center_y = blob["center"]
+    aspect_ratio = blob.get("aspect_ratio", width / max(height, 1))
+    circularity = blob.get("circularity", 0.0)
+    fill_ratio = blob.get("fill_ratio", 0.0)
+    bbox_area_ratio = blob.get("bbox_area_ratio", (width * height) / max(frame_width * frame_height, 1))
+
+    if center_y < frame_height * 0.38:
+        return False
+    if center_x < frame_width * 0.05 or center_x > frame_width * 0.95:
+        return False
+    if aspect_ratio > 2.8 or aspect_ratio < 0.3:
+        return False
+    if circularity < 0.16:
+        return False
+    if fill_ratio < 0.22:
+        return False
+    if bbox_area_ratio > 0.012:
+        return False
+
+    return True
 
 
 def apply_temporal_boost(
@@ -167,7 +219,7 @@ def apply_temporal_boost(
         return candidates
 
     frame_width, frame_height = frame_size
-    max_distance = max(frame_width, frame_height) * 0.12
+    max_distance = max(frame_width, frame_height) * 0.08
     boosted_candidates: list[dict[str, Any]] = []
 
     for candidate in candidates:
@@ -181,7 +233,8 @@ def apply_temporal_boost(
             prev_center_x = prev_x + prev_w / 2
             prev_center_y = prev_y + prev_h / 2
             distance = ((center_x - prev_center_x) ** 2 + (center_y - prev_center_y) ** 2) ** 0.5
-            if distance <= max_distance:
+            size_ratio = min(width * height, prev_w * prev_h) / max(width * height, prev_w * prev_h, 1.0)
+            if distance <= max_distance and size_ratio >= 0.35:
                 sources = list(dict.fromkeys(boosted.get("detection_sources", []) + ["temporal_motion"]))
                 boosted["detection_sources"] = sources
                 boosted["confidence"] = round(min(float(boosted.get("confidence", 0.0)) + 0.12, 0.82), 4)
@@ -216,7 +269,7 @@ def detect_light_candidates(
         for second_index, second_blob in enumerate(blobs):
             if second_index <= first_index or second_index in used_indexes:
                 continue
-            if is_headlight_pair(first_blob, second_blob, frame_width):
+            if is_headlight_pair(first_blob, second_blob, frame_width, frame_height):
                 gap = abs(second_blob["center"][0] - first_blob["center"][0])
                 if gap < best_gap:
                     best_gap = gap
@@ -235,6 +288,8 @@ def detect_light_candidates(
 
     for blob_index, blob in enumerate(blobs):
         if blob_index in used_indexes:
+            continue
+        if not should_keep_single_light_candidate(blob, (frame_width, frame_height)):
             continue
         detections.append(build_single_light_detection(blob, track_id=f"light_{len(detections) + 1}"))
 
