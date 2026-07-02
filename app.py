@@ -8,6 +8,11 @@ import cv2
 import streamlit as st
 
 from src.light_candidate_detector import detect_light_candidates_with_diagnostics, merge_detections
+from src.motion_candidate_detector import (
+    annotate_detections_with_motion,
+    extract_motion_candidates,
+    merge_motion_candidates,
+)
 from src.scene_vector import build_scene_vector, build_sample_scene_vector
 from src.summarizer import summarize_scene
 from src.video_loader import extract_sample_frames, get_video_metadata, save_uploaded_video
@@ -34,7 +39,7 @@ def format_file_size(byte_size: int) -> str:
 
 
 def clear_previous_frames(frames_dir: Path) -> None:
-    """이전 실행 결과가 섞이지 않도록 앱이 생성한 샘플 프레임만 정리한다."""
+    """이전 실행 결과가 섞이지 않도록 샘플 프레임만 정리한다."""
     frames_dir.mkdir(parents=True, exist_ok=True)
     for frame_path in frames_dir.glob("*.jpg"):
         frame_path.unlink()
@@ -70,7 +75,7 @@ def load_frame_rgb(frame_path: Path):
 
 
 def show_video_metadata(metadata: dict[str, float | int]) -> None:
-    """영상 메타데이터를 앱 화면에 요약 표시한다."""
+    """영상 메타데이터를 화면에 요약 표시한다."""
     st.markdown("### 영상 메타데이터")
     metric_columns = st.columns(4)
     metric_columns[0].metric("해상도", f"{metadata['width']} x {metadata['height']}")
@@ -79,8 +84,8 @@ def show_video_metadata(metadata: dict[str, float | int]) -> None:
     metric_columns[3].metric("길이", f"{metadata['duration_seconds']:.2f}초")
 
 
-def show_detector_settings() -> tuple[str, str, float, bool, int]:
-    """데모용 객체 검출 백엔드 설정을 사이드바에서 받는다."""
+def show_detector_settings() -> tuple[str, str, float, bool, int, bool]:
+    """데모 객체 검출 백엔드 설정을 사이드바에서 받는다."""
     st.sidebar.header("검출 설정")
     backend_label = st.sidebar.radio(
         "검출 백엔드",
@@ -90,8 +95,9 @@ def show_detector_settings() -> tuple[str, str, float, bool, int]:
     backend = "yolo" if backend_label == "YOLO detector" else "dummy"
     model_path = st.sidebar.text_input("YOLO 모델 경로", value=YOLO_DEFAULT_MODEL)
     confidence_threshold = st.sidebar.slider("YOLO 신뢰도 기준", 0.05, 0.90, 0.25, 0.05)
-    use_light_candidates = st.sidebar.checkbox("전조등/고휘도 후보 보존", value=True)
+    use_light_candidates = st.sidebar.checkbox("전조등 고휘도 후보 보존", value=True)
     light_brightness_threshold = st.sidebar.slider("전조등 밝기 기준", 180, 255, 220, 5)
+    use_motion_assist = st.sidebar.checkbox("프레임 움직임 보조 검증", value=True)
 
     if backend == "dummy":
         st.sidebar.caption("현재 선택: 프레임 크기 기반 가상 bbox")
@@ -99,8 +105,10 @@ def show_detector_settings() -> tuple[str, str, float, bool, int]:
         st.sidebar.caption("현재 선택: Ultralytics YOLO 데모 백엔드")
     if use_light_candidates:
         st.sidebar.caption("v1.4.2 보강: 후보와 제외된 광원/반사를 분리해 검출 근거를 표시합니다.")
+    if use_motion_assist:
+        st.sidebar.caption("v1.4.3 보강: 이전 샘플 프레임과 비교해 움직임이 있는 후보를 보강합니다.")
 
-    return backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold
+    return backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold, use_motion_assist
 
 
 def show_runtime_status() -> None:
@@ -135,12 +143,15 @@ def analyze_sample_frames(
     frame_size: tuple[int, int],
     use_light_candidates: bool,
     light_brightness_threshold: int,
-) -> tuple[list[dict], list[list[dict]], list[dict]]:
-    """추출된 모든 샘플 프레임에 detector를 적용해 프레임별 Scene Vector를 만든다."""
+    use_motion_assist: bool,
+) -> tuple[list[dict], list[list[dict]], list[dict], list[dict]]:
+    """추출된 모든 샘플 프레임에 detector와 보조 후보 검증을 적용한다."""
     scene_vectors: list[dict] = []
     detections_by_frame: list[list[dict]] = []
     light_diagnostics_by_frame: list[dict] = []
+    motion_diagnostics_by_frame: list[dict] = []
     previous_light_candidates: list[dict] = []
+    previous_frame_bgr = None
     progress = st.progress(0, text="샘플 프레임 분석 준비 중")
 
     for frame_order, frame_path in enumerate(sample_frames, start=1):
@@ -158,8 +169,34 @@ def analyze_sample_frames(
                 previous_candidates=previous_light_candidates,
                 brightness_threshold=light_brightness_threshold,
             )
+
         detections = merge_detections(model_detections, light_candidates)
+        motion_diagnostics: dict = {
+            "verified_count": 0,
+            "motion_candidate_count": 0,
+            "rejected_count": 0,
+            "rejected_by_reason": {},
+        }
+        if use_motion_assist and previous_frame_bgr is not None:
+            detections, verification_diagnostics = annotate_detections_with_motion(
+                detections,
+                previous_frame=previous_frame_bgr,
+                current_frame=frame_bgr,
+            )
+            motion_candidates, candidate_diagnostics = extract_motion_candidates(
+                previous_frame=previous_frame_bgr,
+                current_frame=frame_bgr,
+            )
+            detections = merge_motion_candidates(detections, motion_candidates)
+            motion_diagnostics = {
+                "verified_count": verification_diagnostics.get("verified_count", 0),
+                "motion_candidate_count": len(motion_candidates),
+                "rejected_count": candidate_diagnostics.get("rejected_count", 0),
+                "rejected_by_reason": candidate_diagnostics.get("rejected_by_reason", {}),
+            }
+
         previous_light_candidates = light_candidates
+        previous_frame_bgr = frame_bgr
         timestamp = round((frame_order - 1) / SAMPLE_FPS, 2)
         scene_vector = build_scene_vector(
             frame_index=frame_order,
@@ -171,13 +208,14 @@ def analyze_sample_frames(
         scene_vectors.append(scene_vector)
         detections_by_frame.append(detections)
         light_diagnostics_by_frame.append(light_diagnostics)
+        motion_diagnostics_by_frame.append(motion_diagnostics)
         progress.progress(
             frame_order / len(sample_frames),
             text=f"샘플 프레임 분석 중: {frame_order}/{len(sample_frames)}",
         )
 
     progress.empty()
-    return scene_vectors, detections_by_frame, light_diagnostics_by_frame
+    return scene_vectors, detections_by_frame, light_diagnostics_by_frame, motion_diagnostics_by_frame
 
 
 def store_sample_result(scene_vector: dict) -> None:
@@ -195,6 +233,7 @@ def store_video_result(
     scene_vectors: list[dict],
     detections_by_frame: list[list[dict]],
     light_diagnostics_by_frame: list[dict],
+    motion_diagnostics_by_frame: list[dict],
     detector_backend: str,
 ) -> None:
     """프레임 시퀀스 분석 결과를 파일과 세션 상태에 저장한다."""
@@ -207,6 +246,7 @@ def store_video_result(
         "scene_vectors": scene_vectors,
         "detections_by_frame": detections_by_frame,
         "light_diagnostics_by_frame": light_diagnostics_by_frame,
+        "motion_diagnostics_by_frame": motion_diagnostics_by_frame,
         "detector_backend": detector_backend,
     }
 
@@ -214,7 +254,7 @@ def store_video_result(
 def render_sample_result(scene_vector: dict) -> None:
     """업로드 없이 생성한 샘플 Scene Vector 결과를 표시한다."""
     summary = summarize_scene(scene_vector)
-    st.success("업로드 영상이 없어 샘플 Scene Vector JSON을 생성했습니다.")
+    st.success("업로드 영상 없이 샘플 Scene Vector JSON을 생성했습니다.")
     st.write(summary)
 
     left_column, right_column = st.columns([1, 1])
@@ -234,6 +274,19 @@ def render_sample_result(scene_vector: dict) -> None:
     )
 
 
+def render_rejection_caption(prefix: str, diagnostics: dict) -> None:
+    """제외된 후보 수가 있을 때만 짧은 진단 문구를 보여준다."""
+    rejected_count = diagnostics.get("rejected_count", 0)
+    if not rejected_count:
+        return
+
+    reason_text = ", ".join(
+        f"{reason} {count}개"
+        for reason, count in diagnostics.get("rejected_by_reason", {}).items()
+    )
+    st.caption(f"{prefix} {rejected_count}개: {reason_text}")
+
+
 def render_video_result(result: dict) -> None:
     """슬라이더로 샘플 프레임 시퀀스 분석 결과를 표시한다."""
     metadata = result["metadata"]
@@ -241,6 +294,7 @@ def render_video_result(result: dict) -> None:
     scene_vectors = result["scene_vectors"]
     detections_by_frame = result["detections_by_frame"]
     light_diagnostics_by_frame = result.get("light_diagnostics_by_frame", [])
+    motion_diagnostics_by_frame = result.get("motion_diagnostics_by_frame", [])
     detector_backend = result["detector_backend"]
 
     show_video_metadata(metadata)
@@ -261,6 +315,9 @@ def render_video_result(result: dict) -> None:
     selected_light_diagnostics = (
         light_diagnostics_by_frame[selected_index] if selected_index < len(light_diagnostics_by_frame) else {}
     )
+    selected_motion_diagnostics = (
+        motion_diagnostics_by_frame[selected_index] if selected_index < len(motion_diagnostics_by_frame) else {}
+    )
 
     frame_bgr, frame_rgb = load_frame_rgb(selected_frame_path)
     overlay_bgr = draw_detection_overlay(frame_bgr, selected_detections)
@@ -270,20 +327,34 @@ def render_video_result(result: dict) -> None:
     light_candidate_count = sum(
         1 for detection in selected_detections if "headlight_blob" in detection.get("detection_sources", [])
     )
+    motion_only_count = sum(
+        1
+        for detection in selected_detections
+        if "motion_flow" in detection.get("detection_sources", [])
+        and "yolo" not in detection.get("detection_sources", [])
+        and "headlight_blob" not in detection.get("detection_sources", [])
+    )
     st.success(
         f"프레임 {selected_index + 1}/{len(frame_paths)} 분석 결과를 표시합니다. "
         f"검출 백엔드: {detector_backend}"
     )
     st.write(summary)
     if light_candidate_count:
-        st.info(f"전조등/고휘도 후보 {light_candidate_count}개를 Scene Vector에 보존했습니다.")
-    rejected_count = selected_light_diagnostics.get("rejected_count", 0)
-    if rejected_count:
-        reason_text = ", ".join(
-            f"{reason} {count}개"
-            for reason, count in selected_light_diagnostics.get("rejected_by_reason", {}).items()
+        st.info(f"전조등 고휘도 후보 {light_candidate_count}개를 Scene Vector에 보존했습니다.")
+    if motion_only_count:
+        st.info(f"움직임 기반 unknown 후보 {motion_only_count}개를 추가했습니다.")
+
+    render_rejection_caption("Scene Vector에서 제외된 광원/반사", selected_light_diagnostics)
+
+    verified_count = selected_motion_diagnostics.get("verified_count", 0)
+    motion_candidate_count = selected_motion_diagnostics.get("motion_candidate_count", 0)
+    if verified_count or motion_candidate_count:
+        st.info(
+            f"프레임 움직임 보조: 기존 후보 {verified_count}개 검증, "
+            f"움직임 영역 후보 {motion_candidate_count}개 생성"
         )
-        st.caption(f"Scene Vector에서 제외한 광원/반사 {rejected_count}개: {reason_text}")
+    render_rejection_caption("움직임 후보에서 제외된 영역", selected_motion_diagnostics)
+
     if not selected_detections:
         st.warning("선택한 프레임에서 검출된 객체가 없습니다. objects는 빈 목록입니다.")
 
@@ -344,8 +415,8 @@ def main() -> None:
     st.subheader("2D 블랙박스 영상에서 Scene Vector JSON으로")
 
     st.write(
-        "데모 v1.4.2는 정밀한 3D 복원 시스템이 아니라, YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보까지 "
-        "자차 기준 Scene Vector JSON 배열에 보존하는 구조 확인용 앱입니다."
+        "데모 v1.4.3은 정밀한 3D 복원 시스템이 아닙니다. YOLO, 전조등 고휘도 후보, "
+        "프레임 차분 기반 움직임 후보를 함께 사용해 자차 기준 Scene Vector JSON 배열을 보존하는 구조 확인용 데모입니다."
     )
 
     (
@@ -354,6 +425,7 @@ def main() -> None:
         confidence_threshold,
         use_light_candidates,
         light_brightness_threshold,
+        use_motion_assist,
     ) = show_detector_settings()
     show_runtime_status()
 
@@ -390,12 +462,18 @@ def main() -> None:
                     confidence_threshold=confidence_threshold,
                 )
                 frame_size = (int(metadata["width"]), int(metadata["height"]))
-                scene_vectors, detections_by_frame, light_diagnostics_by_frame = analyze_sample_frames(
+                (
+                    scene_vectors,
+                    detections_by_frame,
+                    light_diagnostics_by_frame,
+                    motion_diagnostics_by_frame,
+                ) = analyze_sample_frames(
                     sample_frames=sample_frames,
                     detector=detector,
                     frame_size=frame_size,
                     use_light_candidates=use_light_candidates,
                     light_brightness_threshold=light_brightness_threshold,
+                    use_motion_assist=use_motion_assist,
                 )
                 store_video_result(
                     metadata=metadata,
@@ -403,6 +481,7 @@ def main() -> None:
                     scene_vectors=scene_vectors,
                     detections_by_frame=detections_by_frame,
                     light_diagnostics_by_frame=light_diagnostics_by_frame,
+                    motion_diagnostics_by_frame=motion_diagnostics_by_frame,
                     detector_backend=detector_backend,
                 )
         except Exception as exc:

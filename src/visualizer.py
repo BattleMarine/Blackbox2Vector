@@ -18,7 +18,28 @@ TOP_VIEW_BASE_SIZES = {
 TOP_VIEW_SUBTYPE_SIZES = {
     "headlight_pair": (1.8, 4.5),
     "possible_vehicle_headlight": (1.2, 2.0),
+    "motion_region": (1.4, 2.4),
 }
+
+
+def get_detection_color_bgr(detection: dict[str, Any]) -> tuple[int, int, int]:
+    """검출 출처별로 색을 분리해 YOLO, 전조등, 움직임 후보를 화면에서 구분한다."""
+    sources = detection.get("detection_sources", [])
+    if "headlight_blob" in sources:
+        return (0, 215, 255)
+    if "motion_flow" in sources:
+        return (255, 0, 255)
+    return (0, 255, 0)
+
+
+def get_top_view_color(obj: dict[str, Any]) -> str:
+    """탑뷰에서도 검출 출처를 유지해 후보의 성격을 잃지 않게 한다."""
+    sources = obj.get("detection_sources", [])
+    if "headlight_blob" in sources:
+        return "tab:orange"
+    if "motion_flow" in sources:
+        return "tab:purple"
+    return "tab:red"
 
 
 def draw_detection_overlay(frame: Any, detections: list[dict[str, Any]]) -> Any:
@@ -29,9 +50,7 @@ def draw_detection_overlay(frame: Any, detections: list[dict[str, Any]]) -> Any:
     overlay = frame.copy()
     for detection in detections:
         x, y, width, height = [int(value) for value in detection["bbox_2d"]]
-        sources = detection.get("detection_sources", [])
-        is_light_candidate = "headlight_blob" in sources
-        color = (0, 215, 255) if is_light_candidate else (0, 255, 0)
+        color = get_detection_color_bgr(detection)
         subtype = detection.get("subtype")
         type_label = detection.get("type", "unknown")
         label_type = f"{type_label}/{subtype}" if subtype else type_label
@@ -83,7 +102,7 @@ def draw_top_view(scene_vector: dict[str, Any]):
     for obj in scene_vector.get("objects", []):
         position = obj["position_3d"]["estimate"]
         x, y, _ = position
-        color = "tab:orange" if "headlight_blob" in obj.get("detection_sources", []) else "tab:red"
+        color = get_top_view_color(obj)
         box_width, box_length = estimate_top_view_box_size(obj)
         alpha = 0.35 if obj.get("is_candidate") else 0.55
         line_style = "--" if obj.get("is_candidate") else "-"

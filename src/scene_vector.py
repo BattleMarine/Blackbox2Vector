@@ -34,6 +34,7 @@ def build_scene_vector(
     for detection in detections:
         bbox_2d = detection["bbox_2d"]
         object_type = detection.get("type", "unknown")
+        motion_score = float(detection.get("motion_score", 0.0))
         position_3d = estimate_position_3d(bbox_2d, frame_width, frame_height, object_type)
         estimated_x, estimated_y, _ = position_3d["estimate"]
 
@@ -44,6 +45,7 @@ def build_scene_vector(
                 "subtype": detection.get("subtype"),
                 "bbox_2d": bbox_2d,
                 "confidence": detection.get("confidence", 0.0),
+                "motion_score": round(motion_score, 4),
                 "detection_sources": detection.get("detection_sources", ["unknown"]),
                 "detection_reason": detection.get("detection_reason", "검출 근거가 기록되지 않았습니다."),
                 "is_candidate": detection.get("is_candidate", False),
@@ -52,12 +54,12 @@ def build_scene_vector(
                     "vx": 0.0,
                     "vy": 0.0,
                     "vz": 0.0,
-                    "confidence": 0.0,
+                    "confidence": round(min(motion_score, 1.0), 4),
                 },
                 "state": {
                     "distance_zone": classify_distance_zone(float(estimated_y)),
                     "lane_position": classify_lane_position(float(estimated_x)),
-                    "motion_state": "unknown",
+                    "motion_state": "moving_candidate" if motion_score >= 0.08 else "unknown",
                 },
             }
         )
@@ -92,6 +94,7 @@ def build_sample_scene_vector() -> dict[str, Any]:
             "type": "car",
             "bbox_2d": [520, 310, 180, 90],
             "confidence": 0.87,
+            "motion_score": 0.0,
             "subtype": None,
             "detection_sources": ["sample"],
             "detection_reason": "앱 초기 화면 검증을 위한 샘플 차량입니다.",

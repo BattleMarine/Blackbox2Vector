@@ -55,7 +55,8 @@ v1.3의 `scene_vectors.json`은 같은 Scene Vector 객체를 프레임 순서�
         "subtype": "possible_vehicle_headlight",
         "bbox_2d": [610, 330, 92, 38],
         "confidence": 0.48,
-        "detection_sources": ["headlight_blob", "temporal_motion"],
+        "motion_score": 0.14,
+        "detection_sources": ["headlight_blob", "temporal_motion", "motion_flow", "temporal_verified"],
         "detection_reason": "야간 프레임에서 차량 형상 대신 고휘도 전조등 후보가 감지되었습니다.",
         "is_candidate": true,
         "position_3d": {
@@ -71,12 +72,12 @@ v1.3의 `scene_vectors.json`은 같은 Scene Vector 객체를 프레임 순서�
           "vx": 0.0,
           "vy": 0.0,
           "vz": 0.0,
-          "confidence": 0.0
+          "confidence": 0.14
         },
         "state": {
           "distance_zone": "mid",
           "lane_position": "center_front",
-          "motion_state": "unknown"
+          "motion_state": "moving_candidate"
         }
       }
     ],
@@ -123,6 +124,7 @@ v1.3의 `scene_vectors.json`은 같은 Scene Vector 객체를 프레임 순서�
 | `subtype` | string 또는 null | 아니오 | 보조 객체 유형 | `headlight_pair` |
 | `bbox_2d` | number array | 예 | 2D bbox `[x, y, width, height]` | `[520, 310, 180, 90]` |
 | `confidence` | number | 예 | 객체 검출 신뢰도 | `0.87` |
+| `motion_score` | number | 아니오 | 이전/현재 샘플 프레임 차분 기반 움직임 근거 점수 | `0.14` |
 | `detection_sources` | string array | 아니오 | 객체 후보를 만든 근거 목록 | `["yolo", "headlight_blob"]` |
 | `detection_reason` | string | 아니오 | 사람이 읽을 수 있는 검출 근거 설명 | `전조등 후보가 감지됨` |
 | `is_candidate` | boolean | 아니오 | 확정 객체가 아니라 보존 후보인지 여부 | `true` |
@@ -138,6 +140,8 @@ v1.3의 `scene_vectors.json`은 같은 Scene Vector 객체를 프레임 순서�
 | `yolo` | Ultralytics YOLO 데모 백엔드 결과 |
 | `headlight_blob` | 야간 전조등/고휘도 blob 기반 후보 |
 | `temporal_motion` | 이전 샘플 프레임 후보와 이어진 고휘도 후보 |
+| `motion_flow` | 이전/현재 샘플 프레임 차분으로 확인한 움직임 근거 |
+| `temporal_verified` | 기존 후보 bbox가 motion mask와 겹쳐 시간축 근거가 보강됨 |
 | `sample` | 업로드 없이 생성한 샘플 데이터 |
 
 ## 2.5D 탑뷰 표시 기준
@@ -154,6 +158,7 @@ v1.4.1부터 2.5D 탑뷰는 고정 크기 마커 대신 객체 타입별 추정 
 | `bicycle` | 0.6m | 1.8m | 자전거 기준 |
 | `person` | 0.6m | 0.6m | 보행자 기준 |
 | `unknown/possible_vehicle_headlight` | 1.2m | 2.0m | 단일 전조등 가능 후보 |
+| `unknown/motion_region` | 1.4m | 2.4m | 프레임 차분 기반 움직임 후보 |
 
 `bbox_2d`의 화면상 면적은 실제 물리 크기가 아니므로 0.75~1.25배 범위의 약한 보정만 적용합니다. `is_candidate`가 `true`인 객체는 낮은 투명도와 점선 테두리로 표시합니다.
 
@@ -174,6 +179,22 @@ v1.4.2부터 전조등/고휘도 후보 검출기는 Scene Vector에 저장할 �
 | `작은 원거리 광원/물방울` | 단일 전조등 후보로 보기에는 너무 작은 점광원 |
 | `낮은 단일 광원 신뢰도` | 단일 후보로 보존하기에는 형태/크기 기반 신뢰도가 낮은 광원 |
 
+## 움직임 후보 제외 진단
+
+v1.4.3부터 프레임 차분 기반 움직임 후보 검출기는 기존 YOLO/전조등 후보를 보강하고, 겹치지 않는 움직임 영역을 `unknown/motion_region` 후보로 보존합니다. 제외된 항목은 `objects`에 들어가지 않으며, 앱 화면에서 프레임별 진단 정보로만 표시합니다.
+
+대표 제외 이유는 다음과 같습니다.
+
+| 제외 이유 | 의미 |
+|---|---|
+| `보닛/대시보드 반사 움직임` | 화면 하단 자차 표면, 앞유리 하단 반사, 와이퍼 근처 변화 |
+| `상단 배경/가로등 변화` | 객체보다 고정 광원 또는 상단 배경 변화 가능성이 높은 영역 |
+| `화면 가장자리 움직임` | 가장자리 왜곡이나 진입/이탈 노이즈 가능성이 큰 영역 |
+| `긴 수평 반사 움직임` | 젖은 노면, 난간, 차선 반사처럼 길게 늘어진 변화 |
+| `전역 밝기 변화` | 카메라 노출 또는 큰 광원 변화로 인한 넓은 변화 |
+| `작은 움직임 노이즈` | 작은 반짝임, 물방울, 압축 노이즈 가능성이 높은 변화 |
+| `희박한 움직임 번짐` | bbox 내부 실제 변화 픽셀 비율이 낮은 흐릿한 번짐 |
+
 ## position_3d
 
 | 필드 | 타입 | 필수 | 의미 | 예시 값 |
@@ -191,7 +212,7 @@ v1.4.2부터 전조등/고휘도 후보 검출기는 Scene Vector에 저장할 �
 | `vx` | number | 예 | x축 속도 추정 | `0.0` |
 | `vy` | number | 예 | y축 속도 추정 | `0.0` |
 | `vz` | number | 예 | z축 속도 추정 | `0.0` |
-| `confidence` | number | 예 | 움직임 추정 신뢰도 | `0.0` |
+| `confidence` | number | 예 | 움직임 추정 신뢰도. v1.4.3에서는 `motion_score`를 반영한 보조 신뢰도이며 실제 속도 신뢰도가 아님 | `0.14` |
 
 ## state
 
@@ -199,7 +220,7 @@ v1.4.2부터 전조등/고휘도 후보 검출기는 Scene Vector에 저장할 �
 |---|---|---|---|---|
 | `distance_zone` | string | 예 | 전방 거리 구간 | `mid` |
 | `lane_position` | string | 예 | 차로 기준 위치 | `center_front` |
-| `motion_state` | string | 예 | 움직임 상태 | `unknown` |
+| `motion_state` | string | 예 | 움직임 상태 | `unknown`, `moving_candidate` |
 
 ## 좌표계 정의
 
@@ -216,7 +237,8 @@ z: 위쪽 양수, 도로면 0
 - 단일 2D 영상만으로 실제 깊이를 정밀하게 복원하지 않습니다.
 - 카메라 캘리브레이션이 반영되지 않았습니다.
 - `z`는 초기에는 도로면 기준 `0.0`으로 둡니다.
-- 움직임 벡터는 추후 프레임 간 추적이 연결될 때 갱신합니다.
+- 움직임 벡터의 `vx`, `vy`, `vz`는 추후 프레임 간 추적이 연결될 때 갱신합니다.
+- v1.4.3의 `motion_score`는 프레임 차분 기반 보조 근거이며 실제 속도나 동일 객체 추적 결과가 아닙니다.
 - `scene_vectors.json`은 프레임별 결과 배열이며, 현재는 프레임 간 동일 객체 ID 연속성을 보장하지 않습니다.
 - `headlight_blob` 후보는 차량 형상이 보이지 않는 야간 장면의 누락을 줄이기 위한 보존 후보이며 차량 확정 판정이 아닙니다.
 - v1.4.1의 전조등 후보 필터는 가로등과 앞유리 물방울 잔상을 줄이기 위한 휴리스틱이며 모든 우천/야간 상황을 완전히 분리하지는 못합니다.

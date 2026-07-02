@@ -18,6 +18,7 @@ blackbox2vector/
 │  ├─ video_loader.py
 │  ├─ detector.py
 │  ├─ light_candidate_detector.py
+│  ├─ motion_candidate_detector.py
 │  ├─ position_estimator.py
 │  ├─ scene_vector.py
 │  ├─ visualizer.py
@@ -50,12 +51,13 @@ blackbox2vector/
 | `src/video_loader.py` | 영상 저장, 메타데이터 조회, 샘플 프레임 추출 |
 | `src/detector.py` | 객체 검출 백엔드 인터페이스, 더미 detection, YOLO detection |
 | `src/light_candidate_detector.py` | 야간 전조등/고휘도 blob 후보 검출과 detection 병합 |
+| `src/motion_candidate_detector.py` | 프레임 차분 기반 움직임 후보 검출과 기존 후보의 temporal 검증 |
 | `src/position_estimator.py` | 2D bbox 기반 3D 위치 추정 |
 | `src/scene_vector.py` | Scene Vector JSON 생성 |
 | `src/visualizer.py` | bbox 오버레이와 2.5D 탑뷰 시각화 |
 | `src/summarizer.py` | 규칙 기반 장면 요약 |
 
-## 데모 v1.4.2 데이터 흐름
+## 데모 v1.4.3 데이터 흐름
 
 ```text
 Streamlit 앱
@@ -71,6 +73,10 @@ Streamlit 앱
   -> Scene Vector 제외 광원/반사의 이유 집계
   -> 이전 샘플 프레임 후보와 이어지는 경우 temporal 후보 보강
   -> 모델 detection과 전조등 후보 병합
+  -> 이전/현재 샘플 프레임 차분으로 움직임 mask 생성
+  -> 기존 후보와 움직임 mask가 겹치면 motion_score와 temporal_verified 근거 추가
+  -> 기존 후보와 겹치지 않는 움직임 영역을 unknown/motion_region 후보로 보존
+  -> Scene Vector 제외 움직임 영역의 이유 집계
   -> 프레임별 bbox 오버레이 생성
   -> 프레임별 2D bbox 기반 위치 추정
   -> Scene Vector JSON 시퀀스 생성
@@ -81,4 +87,4 @@ Streamlit 앱
   -> JSON 다운로드 제공
 ```
 
-현재 앱은 실제 업로드 영상을 저장하고 샘플 프레임을 추출합니다. 객체 검출은 더미 detector와 Ultralytics YOLO detector 중 선택할 수 있습니다. v1.4.2에서는 YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보를 별도 detection 후보로 보존하되, 가로등과 빛번짐 오탐을 줄이기 위해 후보 검증 기준을 더 엄격하게 적용합니다. 제외된 광원/반사는 Scene Vector에 넣지 않고 프레임별 제외 이유만 앱에 표시합니다. 2.5D 탑뷰는 고정 마커 대신 객체 타입별 추정 물리 크기 박스로 표시합니다.
+현재 앱은 실제 업로드 영상을 저장하고 샘플 프레임을 추출합니다. 객체 검출은 더미 detector와 Ultralytics YOLO detector 중 선택할 수 있습니다. v1.4.3에서는 YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보를 별도 detection 후보로 보존하고, 이전 샘플 프레임과 현재 샘플 프레임의 차분으로 움직임 근거를 보강합니다. 제외된 광원/반사와 움직임 영역은 Scene Vector에 넣지 않고 프레임별 제외 이유만 앱에 표시합니다. 2.5D 탑뷰는 고정 마커 대신 객체 타입별 추정 물리 크기 박스로 표시합니다.

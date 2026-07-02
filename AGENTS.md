@@ -79,7 +79,7 @@ BlackBox2Vector는 2D 블랙박스 영상을 입력받아 객체, 차선, 도로
 - FFmpeg
 - Open3D
 
-v1.2에서 Ultralytics YOLO는 데모용 실제 객체 검출 백엔드로 사용합니다. v1.4에서는 YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보를 OpenCV 기반 보조 detector로 보존합니다. 다만 장기 구조에서는 YOLO나 특정 휴리스틱에 종속되지 않도록 detector 백엔드와 후보 생성 모듈을 분리해 유지합니다.
+v1.2에서 Ultralytics YOLO는 데모용 실제 객체 검출 백엔드로 사용합니다. v1.4에서는 YOLO가 놓치기 쉬운 야간 전조등/고휘도 후보를 OpenCV 기반 보조 detector로 보존합니다. v1.4.3에서는 샘플 프레임 간 차분으로 움직임 후보를 보강합니다. 다만 장기 구조에서는 YOLO나 특정 휴리스틱에 종속되지 않도록 detector 백엔드와 후보 생성 모듈을 분리해 유지합니다.
 
 ## 데모 v1에서 하지 말 것
 
@@ -113,6 +113,7 @@ blackbox2vector/
 │  ├─ video_loader.py
 │  ├─ detector.py
 │  ├─ light_candidate_detector.py
+│  ├─ motion_candidate_detector.py
 │  ├─ position_estimator.py
 │  ├─ scene_vector.py
 │  ├─ visualizer.py
@@ -133,6 +134,7 @@ blackbox2vector/
 | src/video_loader.py | 영상 저장, 메타데이터 확인, 프레임 추출 |
 | src/detector.py | 객체 검출 백엔드, 더미와 YOLO 검출 지원 |
 | src/light_candidate_detector.py | 야간 전조등/고휘도 후보 검출과 병합 |
+| src/motion_candidate_detector.py | 프레임 차분 기반 움직임 후보 검출과 기존 후보 보강 |
 | src/position_estimator.py | 2D bbox 기반 3D 위치 추정 |
 | src/scene_vector.py | Scene Vector JSON 생성 |
 | src/visualizer.py | 검출 결과 및 2.5D/3D 시각화 |
