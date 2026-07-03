@@ -18,7 +18,7 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
         raise FileNotFoundError(f"피드백 파일을 찾을 수 없습니다: {path}")
 
     records: list[dict[str, Any]] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
         if not line.strip():
             continue
         try:
