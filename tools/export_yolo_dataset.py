@@ -31,6 +31,9 @@ class ExportStats:
     recovered_frames: int = 0
     missing_frames: int = 0
     invalid_boxes: int = 0
+    snapshot_image_records: int = 0
+    missing_snapshot_records: int = 0
+    legacy_frame_records: int = 0
 
 
 def load_feedback_records(feedback_path: Path) -> list[dict[str, Any]]:
@@ -109,17 +112,37 @@ def choose_split(frame_key: str, val_ratio: float, seed: int) -> str:
     return "val" if randomizer.random() < val_ratio else "train"
 
 
-def collect_records_by_frame(records: list[dict[str, Any]], include_negative_images: bool) -> dict[str, list[dict[str, Any]]]:
+def get_record_image_path_text(record: dict[str, Any], stats: ExportStats | None = None) -> str | None:
+    image_path = record.get("image_path")
+    if image_path:
+        if Path(str(image_path)).exists():
+            if stats is not None:
+                stats.snapshot_image_records += 1
+            return str(image_path)
+        if stats is not None:
+            stats.missing_snapshot_records += 1
+
+    frame_path = record.get("frame_path") or record.get("source_frame_path")
+    if frame_path and stats is not None:
+        stats.legacy_frame_records += 1
+    return str(frame_path) if frame_path else None
+
+
+def collect_records_by_frame(
+    records: list[dict[str, Any]],
+    include_negative_images: bool,
+    stats: ExportStats | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in records:
         feedback_type = record.get("feedback_type")
-        frame_path = record.get("frame_path")
-        if not frame_path:
+        image_path = get_record_image_path_text(record, stats)
+        if not image_path:
             continue
         if feedback_type in POSITIVE_FEEDBACK_TYPES:
-            grouped[str(frame_path)].append(record)
+            grouped[image_path].append(record)
         elif include_negative_images and feedback_type in NEGATIVE_FEEDBACK_TYPES:
-            grouped[str(frame_path)].append(record)
+            grouped[image_path].append(record)
     return dict(grouped)
 
 
@@ -189,7 +212,7 @@ def export_yolo_dataset(
 
     records = load_feedback_records(feedback_path)
     stats = ExportStats(total_records=len(records))
-    grouped = collect_records_by_frame(records, include_negative_images)
+    grouped = collect_records_by_frame(records, include_negative_images, stats)
     class_to_id = {class_name: index for index, class_name in enumerate(CLASS_NAMES)}
 
     recovered_dir = output_dir / "_recovered_frames"
@@ -273,6 +296,7 @@ def export_yolo_dataset(
         "positive_feedback_types": sorted(POSITIVE_FEEDBACK_TYPES),
         "negative_feedback_types": sorted(NEGATIVE_FEEDBACK_TYPES),
         "include_negative_images": include_negative_images,
+        "image_source_priority": ["image_path", "frame_path", "source_frame_path", "data/input video recovery"],
     }
     (output_dir / "export_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary

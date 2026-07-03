@@ -1,5 +1,32 @@
 # BlackBox2Vector
 
+## v1.5.1 피드백 이미지 보관 정책
+
+라벨링 피드백을 저장할 때 해당 프레임 이미지를 `data/feedback/images/`에 별도 스냅샷으로 보관합니다.
+
+- 새 피드백 record에는 `image_path`가 포함됩니다.
+- YOLO 데이터셋 export는 `image_path`를 우선 사용합니다.
+- 오래된 피드백처럼 `image_path`가 없으면 기존 `frame_path`와 `data/input` 원본 영상 복구를 fallback으로 사용합니다.
+- 원본 영상은 짧은 아카이브로 보관할 수 있지만, 피드백 저장 이후에는 지워도 학습 데이터 export가 가능하도록 설계합니다.
+- `data/feedback/`, `data/input/`, `data/output/`, `data/yolo_dataset/`의 실제 데이터는 개인정보와 용량 문제 때문에 Git에 커밋하지 않습니다.
+
+구버전 피드백에 `image_path`가 없을 때는 원본 영상이 남아 있는 동안 다음 명령으로 프레임 스냅샷을 채울 수 있습니다.
+
+```bash
+python3 tools/migrate_feedback_images.py
+```
+
+## YOLO 모델 구분
+
+기본 YOLO와 피드백 튜닝 모델은 경로와 앱 표시명을 분리합니다.
+
+| 구분 | 기본 경로 | 용도 |
+|---|---|---|
+| 기본 YOLO | `yolov8n.pt` | Ultralytics 기본 사전학습 모델 |
+| 피드백 튜닝 YOLO | `data/models/blackbox2vector_feedback_yolo_v1_5/weights/best.pt` | 라벨링 피드백으로 fine-tuning한 프로젝트 모델 |
+
+Streamlit 사이드바의 `YOLO 모델 구분`에서 두 모델을 선택할 수 있습니다. 튜닝 모델이 아직 없으면 앱은 경고를 표시합니다.
+
 ## v1.5 YOLO 피드백 학습
 
 라벨링 관리자에서 저장한 `data/output/label_feedback.jsonl`은 YOLO 학습 데이터셋으로 변환할 수 있습니다.
@@ -28,7 +55,11 @@ data/yolo_dataset/blackbox_feedback_v1/
 python tools/train_yolo_from_feedback.py --model yolov8n.pt --epochs 30 --imgsz 640 --batch 8
 ```
 
-`TP`와 `FP`는 positive label로 변환합니다. `TN`과 `FN`은 객체 라벨에는 넣지 않으며, 기본 설정에서는 hard negative 이미지로 빈 라벨 파일을 생성할 수 있습니다. 피드백이 참조하는 프레임 이미지가 `data/frames`에 없으면 `data/input`의 원본 영상에서 프레임 번호를 기준으로 복구를 시도합니다.
+학습 결과의 기본 모델 경로는 `data/models/blackbox2vector_feedback_yolo_v1_5/weights/best.pt`입니다.
+
+같은 명령을 다시 실행하면 기존 튜닝 모델 폴더는 학습 전에 `data/models/_archive/` 아래로 자동 이동합니다. 기존 모델을 보존하지 않고 덮어쓰려면 `--no-archive`를 추가합니다.
+
+`TP`와 `FP`는 positive label로 변환합니다. `TN`과 `FN`은 객체 라벨에는 넣지 않으며, 기본 설정에서는 hard negative 이미지로 빈 라벨 파일을 생성할 수 있습니다. 새 피드백은 `image_path`의 스냅샷 이미지를 우선 사용하고, 오래된 피드백처럼 스냅샷이 없을 때만 `frame_path` 또는 `data/input` 원본 영상 복구를 시도합니다.
 
 ## v1.5.1 프레임 추출 정책
 
@@ -210,6 +241,7 @@ blackbox2vector/
 ├─ app.py
 ├─ data/
 │  ├─ input/
+│  ├─ feedback/
 │  ├─ frames/
 │  ├─ output/
 │  └─ yolo_dataset/

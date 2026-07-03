@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 
@@ -11,6 +13,28 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.export_yolo_dataset import export_yolo_dataset
+
+
+def build_unique_archive_path(archive_root: Path, run_name: str) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archive_path = archive_root / f"{run_name}_{timestamp}"
+    counter = 1
+    while archive_path.exists():
+        archive_path = archive_root / f"{run_name}_{timestamp}_{counter:02d}"
+        counter += 1
+    return archive_path
+
+
+def archive_existing_run(project_dir: Path, run_name: str, enabled: bool = True) -> Path | None:
+    run_dir = project_dir / run_name
+    if not enabled or not run_dir.exists():
+        return None
+
+    archive_root = project_dir / "_archive"
+    archive_root.mkdir(parents=True, exist_ok=True)
+    archive_path = build_unique_archive_path(archive_root, run_name)
+    shutil.move(str(run_dir), str(archive_path))
+    return archive_path
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -23,11 +47,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--imgsz", type=int, default=640, help="학습 이미지 크기")
     parser.add_argument("--batch", type=int, default=8, help="학습 batch 크기")
     parser.add_argument("--device", default=None, help="학습 장치. 예: 0, cpu")
-    parser.add_argument("--project", default="data/output/yolo_runs", help="YOLO 학습 결과 저장 폴더")
-    parser.add_argument("--name", default="blackbox_feedback_v1", help="YOLO run 이름")
+    parser.add_argument("--project", default="data/models", help="YOLO 학습 모델 저장 폴더")
+    parser.add_argument("--name", default="blackbox2vector_feedback_yolo_v1_5", help="YOLO 튜닝 모델 이름")
     parser.add_argument("--val-ratio", type=float, default=0.2, help="검증 데이터 비율")
     parser.add_argument("--seed", type=int, default=42, help="train/val 분할 seed")
     parser.add_argument("--export-only", action="store_true", help="데이터셋만 만들고 학습은 실행하지 않습니다.")
+    parser.add_argument("--no-archive", action="store_true", help="기존 학습 결과 폴더를 아카이브하지 않고 덮어씁니다.")
     return parser
 
 
@@ -51,13 +76,18 @@ def main() -> None:
     except ImportError as exc:
         raise ImportError("YOLO 학습을 실행하려면 ultralytics가 필요합니다. pip install -r requirements.txt를 실행하세요.") from exc
 
+    project_dir = Path(args.project).resolve()
+    archived_path = archive_existing_run(project_dir, args.name, enabled=not args.no_archive)
+    if archived_path is not None:
+        print(f"기존 학습 결과를 아카이브했습니다: {archived_path.as_posix()}")
+
     model = YOLO(args.model)
     train_kwargs = {
         "data": summary["data_yaml"],
         "epochs": args.epochs,
         "imgsz": args.imgsz,
         "batch": args.batch,
-        "project": Path(args.project).resolve().as_posix(),
+        "project": project_dir.as_posix(),
         "name": args.name,
         "exist_ok": True,
     }

@@ -2,6 +2,13 @@
 
 ## v1.5 YOLO 피드백 학습 도구 색인
 
+## v1.5.1 피드백 이미지 보관 색인
+
+| 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
+|---|---|---|---|---|---|
+| `app.save_feedback_frame_snapshot` | 함수 | frame_path | snapshot path | 피드백 저장 시 현재 프레임 이미지를 `data/feedback/images/`에 복사 | 원본 영상 삭제 대비 |
+| `tools.export_yolo_dataset.get_record_image_path_text` | 함수 | feedback record, stats | 이미지 경로 문자열 또는 null | `image_path`를 우선 사용하고 없으면 기존 `frame_path`로 fallback | v1.5 피드백 호환 |
+
 ### tools/export_yolo_dataset.py
 
 | 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
@@ -12,19 +19,32 @@
 | `find_source_video` | 함수 | video_stem, input_dir | 영상 경로 또는 null | 원본 영상 파일 찾기 | MP4/AVI/MOV/MKV |
 | `recover_frame_from_video` | 함수 | video_path, frame_index, target_path | bool | 원본 영상에서 누락 프레임 복구 | OpenCV 사용 |
 | `normalize_bbox` | 함수 | bbox, image width, image height | YOLO bbox 또는 null | 픽셀 bbox를 YOLO 정규화 좌표로 변환 | 이미지 경계 clipping |
+| `get_record_image_path_text` | 함수 | record, stats | 이미지 경로 또는 null | 피드백 record에서 학습 이미지 경로 선택 | `image_path` 우선 |
 | `export_yolo_dataset` | 함수 | feedback, output, input_dir, val_ratio | summary dict | 피드백을 YOLO 데이터셋으로 변환 | `data.yaml` 생성 |
 
 ### tools/train_yolo_from_feedback.py
 
 | 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
 |---|---|---|---|---|---|
+| `build_unique_archive_path` | 함수 | archive root, run name | archive path | 기존 학습 결과 보관 경로 생성 | timestamp 사용 |
+| `archive_existing_run` | 함수 | project dir, run name, enabled | archive path 또는 null | 같은 이름의 기존 학습 결과를 `_archive`로 이동 | 기본 활성화 |
 | `main` | 함수 | CLI args | 없음 | 데이터셋 export 후 YOLO fine-tuning 실행 | `--export-only` 지원 |
+
+기본 학습 산출물 경로는 `data/models/blackbox2vector_feedback_yolo_v1_5/weights/best.pt`입니다.
+
+### tools/migrate_feedback_images.py
+
+| 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
+|---|---|---|---|---|---|
+| `migrate_feedback_images` | 함수 | feedback, input_dir, image_dir, dry_run | summary dict | 구버전 피드백 record에 `image_path`를 채움 | 원본 영상 삭제 전 실행 |
+| `ensure_feedback_image` | 함수 | frame_path, input_dir, image_dir | image path 또는 null | 기존 프레임 이미지 복사 또는 원본 영상에서 프레임 복구 | OpenCV 사용 |
 
 ## v1.5 라벨링 관리자 추가 색인
 
 | 이름 | 종류 | 입력 | 출력 | 역할 | 비고 |
 |---|---|---|---|---|---|
 | `append_jsonl` | 함수 | record, output_path | 없음 | 관리자 피드백을 JSONL로 누적 저장 | `label_feedback.jsonl` |
+| `save_feedback_frame_snapshot` | 함수 | frame_path | snapshot path | 피드백용 프레임 이미지를 별도 보관 | `data/feedback/images` |
 | `build_video_analysis_result` | 함수 | 업로드 파일과 detector 설정 | 분석 result dict | 분석 데모와 라벨링 관리자가 같은 분석 초안을 공유 | v1.5 |
 | `build_label_record` | 함수 | frame, feedback_type, bbox, tag, note | label record dict | TP/TN/FP/FN 피드백 저장 형식 생성 | `feedback_meaning` 포함 |
 | `build_canvas_key` | 함수 | prefix, frame index, frame path, image | canvas key 문자열 | 프레임 이미지가 바뀌면 캔버스를 새로 mount하도록 key 생성 | 흰 배경 방지 |
@@ -70,7 +90,7 @@
 | `save_scene_vectors` | 함수 | `scene_vectors`, `output_path` | 저장된 `Path` | 프레임별 Scene Vector 배열 저장 | `scene_vectors.json` 저장 |
 | `load_frame_rgb` | 함수 | `frame_path` | BGR 프레임, RGB 프레임 | OpenCV 프레임을 앱 표시용으로 변환 | 읽기 실패 시 예외 |
 | `show_video_metadata` | 함수 | `metadata` | 없음 | 영상 메타데이터를 Streamlit metric으로 표시 | v1.1 UI |
-| `show_detector_settings` | 함수 | 없음 | backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold, use_motion_assist | detector, 전조등 후보, 움직임 보조 설정을 사이드바에서 입력 | v1.4.3 UI |
+| `show_detector_settings` | 함수 | 없음 | backend, model_path, confidence_threshold, use_light_candidates, light_brightness_threshold, use_motion_assist | detector, YOLO 모델 구분, 전조등 후보, 움직임 보조 설정을 사이드바에서 입력 | 기본 YOLO/피드백 튜닝 YOLO 구분 |
 | `show_runtime_status` | 함수 | 없음 | 없음 | 앱이 사용하는 Python 경로와 YOLO 설치 상태 표시 | 환경 혼선 진단 |
 | `create_object_detector` | 함수 | `backend`, `model_path`, `confidence_threshold` | `ObjectDetector` 인스턴스 | Streamlit 모듈 캐시를 갱신한 뒤 detector 생성 | hot reload 안정화 |
 | `analyze_sample_frames` | 함수 | `sample_frames`, `detector`, `frame_size`, `use_light_candidates`, `light_brightness_threshold`, `use_motion_assist` | scene_vectors, detections_by_frame, light_diagnostics_by_frame, motion_diagnostics_by_frame | 추출된 모든 샘플 프레임에 detector, 전조등 후보, 움직임 후보 검출 적용 | 제외 이유 진단 포함 |

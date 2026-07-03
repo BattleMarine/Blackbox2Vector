@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import shutil
 import sys
 from importlib import import_module, reload
 from importlib.util import find_spec
@@ -71,10 +72,12 @@ from src.visualizer import draw_detection_overlay, draw_top_view
 INPUT_DIR = Path("data/input")
 FRAMES_DIR = Path("data/frames")
 OUTPUT_DIR = Path("data/output")
+FEEDBACK_IMAGE_DIR = Path("data/feedback/images")
 SCENE_VECTOR_PATH = OUTPUT_DIR / "scene_vector.json"
 SCENE_VECTOR_SEQUENCE_PATH = OUTPUT_DIR / "scene_vectors.json"
 LABEL_FEEDBACK_PATH = OUTPUT_DIR / "label_feedback.jsonl"
 YOLO_DEFAULT_MODEL = "yolov8n.pt"
+YOLO_FINETUNED_MODEL = "data/models/blackbox2vector_feedback_yolo_v1_5/weights/best.pt"
 SAMPLE_FPS = 1
 OBJECT_CLASSES = ["car", "truck", "bus", "motorcycle", "bicycle", "person"]
 NEGATIVE_TAGS = ["false_positive", "streetlight", "sign_light", "windshield_drop", "road_reflection", "hood_reflection", "other"]
@@ -112,6 +115,21 @@ def append_jsonl(record: dict[str, Any], output_path: Path) -> None:
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def save_feedback_frame_snapshot(frame_path: Path) -> Path:
+    if not frame_path.exists():
+        raise FileNotFoundError(f"피드백 프레임 이미지를 찾을 수 없습니다: {frame_path}")
+
+    FEEDBACK_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    frame_stat = frame_path.stat()
+    identity_text = f"{frame_path.resolve()}:{frame_stat.st_size}:{frame_stat.st_mtime_ns}"
+    identity_hash = hashlib.sha1(identity_text.encode("utf-8")).hexdigest()[:12]
+    snapshot_path = FEEDBACK_IMAGE_DIR / f"{frame_path.stem}_{identity_hash}{frame_path.suffix.lower() or '.jpg'}"
+    if not snapshot_path.exists():
+        # 원본 영상은 단기 보관 대상이므로, 학습에 필요한 프레임만 별도로 남깁니다.
+        shutil.copy2(frame_path, snapshot_path)
+    return snapshot_path
+
+
 def load_frame_rgb(frame_path: Path):
     frame_bgr = cv2.imread(str(frame_path))
     if frame_bgr is None:
@@ -132,7 +150,22 @@ def show_detector_settings() -> tuple[str, str, float, bool, int, bool]:
     st.sidebar.header("검출 설정")
     backend_label = st.sidebar.radio("검출 백엔드", ["더미 detector", "YOLO detector"])
     backend = "yolo" if backend_label == "YOLO detector" else "dummy"
-    model_path = st.sidebar.text_input("YOLO 모델 경로", value=YOLO_DEFAULT_MODEL)
+    model_profile = st.sidebar.selectbox(
+        "YOLO 모델 구분",
+        ["기본 YOLO", "피드백 튜닝 YOLO", "직접 입력"],
+        help="기본 YOLO와 프로젝트 피드백으로 튜닝한 모델을 명확히 구분합니다.",
+    )
+    if model_profile == "기본 YOLO":
+        model_path = YOLO_DEFAULT_MODEL
+        st.sidebar.caption(f"사용 모델: {model_path}")
+    elif model_profile == "피드백 튜닝 YOLO":
+        model_path = YOLO_FINETUNED_MODEL
+        if Path(model_path).exists():
+            st.sidebar.success(f"튜닝 모델 확인: {model_path}")
+        else:
+            st.sidebar.warning(f"튜닝 모델이 아직 없습니다: {model_path}")
+    else:
+        model_path = st.sidebar.text_input("YOLO 모델 경로", value=YOLO_DEFAULT_MODEL)
     confidence_threshold = st.sidebar.slider("YOLO 추론 신뢰도 기준", 0.05, 0.90, 0.25, 0.05)
     use_light_candidates = st.sidebar.checkbox("밝은 영역 evidence 수집", value=True)
     light_brightness_threshold = st.sidebar.slider("밝은 영역 기준", 180, 255, 220, 5)
@@ -307,9 +340,12 @@ def build_label_record(
 ) -> dict[str, Any]:
     if feedback_type not in FEEDBACK_DEFINITIONS:
         raise ValueError(f"지원하지 않는 피드백 타입입니다: {feedback_type}")
+    feedback_image_path = save_feedback_frame_snapshot(frame_path)
     return {
         "frame_index": frame_index,
         "frame_path": frame_path.as_posix(),
+        "source_frame_path": frame_path.as_posix(),
+        "image_path": feedback_image_path.as_posix(),
         "feedback_type": feedback_type,
         "feedback_meaning": FEEDBACK_DEFINITIONS[feedback_type],
         "bbox_2d": [round(float(value), 2) for value in bbox_2d],

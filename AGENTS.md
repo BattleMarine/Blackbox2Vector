@@ -1,5 +1,24 @@
 # AGENTS.md
 
+## v1.5.1 피드백 이미지 보관 원칙
+
+라벨링 피드백은 원본 영상에 장기 의존하지 않도록 저장합니다.
+
+- 피드백 저장 시 해당 프레임 이미지를 `data/feedback/images/`에 스냅샷으로 복사합니다.
+- 피드백 JSONL record에는 `image_path`를 포함합니다.
+- YOLO 데이터셋 export는 `image_path`를 우선 사용합니다.
+- `image_path`가 없는 기존 피드백은 `frame_path`와 `data/input` 원본 영상 복구를 fallback으로 사용합니다.
+- 원본 영상은 짧은 아카이브로 볼 수 있으며, 피드백 저장 후 삭제해도 학습 데이터 export가 가능해야 합니다.
+- 피드백 이미지도 개인정보가 포함될 수 있으므로 Git에 커밋하지 않습니다.
+
+## YOLO 모델 구분 원칙
+
+- 기본 YOLO는 `yolov8n.pt`로 둡니다.
+- 피드백 튜닝 YOLO는 `data/models/blackbox2vector_feedback_yolo_v1_5/weights/best.pt`를 기본 경로로 둡니다.
+- 앱 UI에서는 기본 YOLO와 피드백 튜닝 YOLO를 다른 선택지로 표시합니다.
+- `data/models/`의 실제 모델 가중치는 Git에 커밋하지 않습니다.
+- 같은 이름의 튜닝 모델을 다시 학습할 때는 기존 결과를 `data/models/_archive/`로 자동 아카이브합니다.
+
 ## v1.5 YOLO 피드백 학습 원칙
 
 라벨링 피드백은 `tools/export_yolo_dataset.py`로 YOLO 데이터셋으로 변환합니다.
@@ -143,6 +162,7 @@ blackbox2vector/
 ├─ app.py
 ├─ data/
 │  ├─ input/
+│  ├─ feedback/
 │  ├─ frames/
 │  ├─ output/
 │  └─ yolo_dataset/

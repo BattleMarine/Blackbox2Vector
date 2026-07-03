@@ -1,5 +1,29 @@
 # PROJECT_MAP.md
 
+## v1.5.1 피드백 이미지 보관 흐름
+
+```text
+라벨링 관리자에서 피드백 저장
+  -> 현재 프레임 이미지를 data/feedback/images/에 스냅샷으로 복사
+  -> data/output/label_feedback.jsonl record에 image_path 기록
+  -> tools/export_yolo_dataset.py가 image_path를 우선 사용
+  -> image_path가 없을 때만 frame_path 또는 data/input 원본 영상 복구 사용
+```
+
+이 구조에서는 원본 블랙박스 영상을 장기 보관하지 않아도 새로 저장한 피드백을 YOLO 학습 데이터셋으로 변환할 수 있습니다.
+
+## YOLO 모델 보관 흐름
+
+```text
+yolov8n.pt
+  -> 기본 YOLO 사전학습 모델
+
+data/models/blackbox2vector_feedback_yolo_v1_5/weights/best.pt
+  -> 라벨링 피드백으로 튜닝한 프로젝트 모델
+```
+
+앱 사이드바에서는 두 모델을 `기본 YOLO`와 `피드백 튜닝 YOLO`로 구분해 선택합니다.
+
 ## v1.5 YOLO 피드백 학습 흐름
 
 ```text
